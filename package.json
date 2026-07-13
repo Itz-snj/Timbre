@@ -8,9 +8,12 @@
     "start": "next start",
     "lint": "eslint"
   },
-  "//engines": "firebase-admin -> jwks-rsa CommonJS-requires jose, which is ESM-only. That require() only works on a Node with require(esm) support: 20.19+ or 22.12+. Without this field Vercel picks an older default and every server route 500s with ERR_REQUIRE_ESM.",
   "engines": {
     "node": "22.x"
+  },
+  "//overrides": "Next keeps firebase-admin in its default server-external-packages list, so it is require()d from node_modules at runtime rather than bundled. Its transitive dep jwks-rsa is CommonJS and does `require('jose')`, but jose v6 is ESM-only — which throws ERR_REQUIRE_ESM on any Node without require(esm) (i.e. below 20.19/22.12), taking down every server route in production. jose v5 ships a CJS build, and jwks-rsa only uses importJWK and exportSPKI, which are unchanged between v5 and v6. Pinning v5 fixes this at the dependency level so it does not depend on the deployed Node version.",
+  "overrides": {
+    "jose": "^5.10.0"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
