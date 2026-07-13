@@ -1,0 +1,242 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+ * Design tokens — see ai_rules.md §7.
+ *
+ * Colour carries domain meaning here rather than being decorative:
+ *   brand     the product itself (primary actions, logo, focus)
+ *   record    an active recording — never used for anything else, so a red dot
+ *             on screen always means "audio is being captured right now"
+ *   canvas    canvas-type notes (Excalidraw)
+ *   document  document-type notes (Tiptap)
+ * Keeping the two note types colour-coded means the dashboard reads at a glance
+ * without the user parsing a text label on every card.
+ * ------------------------------------------------------------------------- */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --font-sans: var(--font-inter);
+  --font-heading: var(--font-fraunces);
+  --font-mono: var(--font-jetbrains-mono);
+
+  /* Domain tokens */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-muted: var(--brand-muted);
+  --color-record: var(--record);
+  --color-record-foreground: var(--record-foreground);
+  --color-canvas: var(--canvas);
+  --color-canvas-muted: var(--canvas-muted);
+  --color-document: var(--document);
+  --color-document-muted: var(--document-muted);
+
+  /* shadcn surface tokens */
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+  --radius-3xl: calc(var(--radius) * 3);
+}
+
+:root {
+  --radius: 0.75rem;
+
+  /* Warm paper, blue-black ink — deliberately not shadcn's pure-grey neutral */
+  --background: oklch(0.988 0.004 95);
+  --foreground: oklch(0.21 0.02 265);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.02 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 265);
+
+  --brand: oklch(0.51 0.19 276);
+  --brand-foreground: oklch(0.99 0.005 95);
+  --brand-muted: oklch(0.95 0.03 276);
+
+  --record: oklch(0.57 0.22 22);
+  --record-foreground: oklch(0.99 0.005 95);
+
+  --canvas: oklch(0.58 0.12 196);
+  --canvas-muted: oklch(0.95 0.03 196);
+
+  --document: oklch(0.66 0.14 62);
+  --document-muted: oklch(0.96 0.04 62);
+
+  --primary: oklch(0.51 0.19 276);
+  --primary-foreground: oklch(0.99 0.005 95);
+  --secondary: oklch(0.96 0.006 95);
+  --secondary-foreground: oklch(0.28 0.02 265);
+  --muted: oklch(0.96 0.006 95);
+  --muted-foreground: oklch(0.51 0.018 265);
+  --accent: oklch(0.95 0.03 276);
+  --accent-foreground: oklch(0.36 0.13 276);
+  --destructive: oklch(0.57 0.22 22);
+
+  --border: oklch(0.9 0.008 95);
+  --input: oklch(0.9 0.008 95);
+  --ring: oklch(0.51 0.19 276);
+
+  --chart-1: oklch(0.51 0.19 276);
+  --chart-2: oklch(0.58 0.12 196);
+  --chart-3: oklch(0.66 0.14 62);
+  --chart-4: oklch(0.57 0.22 22);
+  --chart-5: oklch(0.51 0.018 265);
+
+  --sidebar: oklch(0.97 0.005 95);
+  --sidebar-foreground: oklch(0.21 0.02 265);
+  --sidebar-primary: oklch(0.51 0.19 276);
+  --sidebar-primary-foreground: oklch(0.99 0.005 95);
+  --sidebar-accent: oklch(0.95 0.03 276);
+  --sidebar-accent-foreground: oklch(0.36 0.13 276);
+  --sidebar-border: oklch(0.9 0.008 95);
+  --sidebar-ring: oklch(0.51 0.19 276);
+}
+
+.dark {
+  --background: oklch(0.17 0.015 265);
+  --foreground: oklch(0.96 0.005 95);
+
+  --card: oklch(0.21 0.018 265);
+  --card-foreground: oklch(0.96 0.005 95);
+  --popover: oklch(0.21 0.018 265);
+  --popover-foreground: oklch(0.96 0.005 95);
+
+  --brand: oklch(0.7 0.16 277);
+  --brand-foreground: oklch(0.18 0.02 265);
+  --brand-muted: oklch(0.3 0.08 276);
+
+  --record: oklch(0.68 0.2 22);
+  --record-foreground: oklch(0.18 0.02 265);
+
+  --canvas: oklch(0.72 0.12 196);
+  --canvas-muted: oklch(0.3 0.05 196);
+
+  --document: oklch(0.78 0.13 66);
+  --document-muted: oklch(0.32 0.06 62);
+
+  --primary: oklch(0.7 0.16 277);
+  --primary-foreground: oklch(0.18 0.02 265);
+  --secondary: oklch(0.27 0.02 265);
+  --secondary-foreground: oklch(0.96 0.005 95);
+  --muted: oklch(0.27 0.02 265);
+  --muted-foreground: oklch(0.72 0.015 265);
+  --accent: oklch(0.3 0.08 276);
+  --accent-foreground: oklch(0.92 0.04 276);
+  --destructive: oklch(0.68 0.2 22);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.7 0.16 277);
+
+  --chart-1: oklch(0.7 0.16 277);
+  --chart-2: oklch(0.72 0.12 196);
+  --chart-3: oklch(0.78 0.13 66);
+  --chart-4: oklch(0.68 0.2 22);
+  --chart-5: oklch(0.72 0.015 265);
+
+  --sidebar: oklch(0.21 0.018 265);
+  --sidebar-foreground: oklch(0.96 0.005 95);
+  --sidebar-primary: oklch(0.7 0.16 277);
+  --sidebar-primary-foreground: oklch(0.18 0.02 265);
+  --sidebar-accent: oklch(0.3 0.08 276);
+  --sidebar-accent-foreground: oklch(0.92 0.04 276);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.7 0.16 277);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-heading;
+    /* Fraunces is a variable font: dial down the "wonk" and softness so it
+       reads as a refined editorial serif rather than a novelty display face. */
+    font-variation-settings:
+      "SOFT" 0,
+      "WONK" 0;
+    letter-spacing: -0.015em;
+  }
+
+  /* ai_rules.md §7: keyboard focus must always be visible, not just on hover. */
+  :focus-visible {
+    @apply outline-ring outline-2 outline-offset-2;
+  }
+}
+
+@layer utilities {
+  /* The pulse behind an active record button. Respects reduced-motion below. */
+  @keyframes record-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(1.06);
+    }
+  }
+
+  .animate-record-pulse {
+    animation: record-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
