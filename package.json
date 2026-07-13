@@ -8,6 +8,10 @@
     "start": "next start",
     "lint": "eslint"
   },
+  "//engines": "firebase-admin -> jwks-rsa CommonJS-requires jose, which is ESM-only. That require() only works on a Node with require(esm) support: 20.19+ or 22.12+. Without this field Vercel picks an older default and every server route 500s with ERR_REQUIRE_ESM.",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
