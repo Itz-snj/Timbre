@@ -6,6 +6,23 @@ console. Work through them in order; the whole thing is ~20 minutes.
 When you're done, every value in `.env.local` is filled in **and** mirrored in the
 Vercel dashboard (ai_rules.md §4, Phase 0).
 
+> ## The four that actually bit
+>
+> Each of these worked perfectly on `localhost` and broke only once deployed —
+> which is precisely why ai_rules.md rule 5 says a phase isn't done until it's
+> live. If something breaks, check these first:
+>
+> 1. **Firebase Auth is a separate product from the Firebase project** (§1.2). You get
+>    valid-looking config values before Auth exists. Symptom:
+>    `auth/configuration-not-found`.
+> 2. **Every deployed domain needs authorizing in Firebase** (§1.3). Symptom:
+>    Google sign-in works on localhost, fails silently on the live URL.
+> 3. **Atlas needs `0.0.0.0/0`**, not your laptop's IP (§2.3). Vercel has no fixed
+>    egress IPs. Symptom: a *TLS* error — `ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR`,
+>    `ReplicaSetNoPrimary` — which looks nothing like the permissions problem it is.
+> 4. **URL-encode the Atlas password** (§2.4). Symptom: `MongoParseError: Password
+>    contains unescaped characters`, which reads like a wrong password.
+
 ---
 
 ## 1. Firebase — Auth (~7 min)
