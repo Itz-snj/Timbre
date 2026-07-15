@@ -4,6 +4,7 @@ import { notesCollection } from "@/lib/mongodb";
 import { toNoteSummary } from "@/lib/notes";
 import { NewNoteButton } from "@/components/notes/new-note-button";
 import { NoteCard } from "@/components/notes/note-card";
+import { ImportButton } from "@/components/notes/import-button";
 
 export const metadata = { title: "Your notes" };
 
@@ -38,7 +39,10 @@ export default async function DashboardPage() {
               : `${summaries.length} note${summaries.length === 1 ? "" : "s"}`}
           </p>
         </div>
-        <NewNoteButton />
+        <div className="flex items-center gap-2">
+          <ImportButton />
+          <NewNoteButton />
+        </div>
       </div>
 
       {summaries.length === 0 ? (

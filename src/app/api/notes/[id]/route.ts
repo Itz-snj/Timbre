@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
+import { del } from "@vercel/blob";
 import {
   currentUser,
   notFound,
   parseJsonBody,
   unauthorized,
 } from "@/lib/api";
-import { notesCollection } from "@/lib/mongodb";
+import { serverEnv } from "@/lib/env";
+import { notesCollection, voiceNotesCollection } from "@/lib/mongodb";
 import { renameNoteSchema, toNoteDetail } from "@/lib/notes";
+import { refundBudget } from "@/lib/voice-budget";
 import type { NoteDoc, UserDoc } from "@/lib/models";
 
 // Reads the session cookie and queries Mongo per request — never prerender.
@@ -166,13 +169,32 @@ export async function DELETE(
 
   const { id } = await params;
   if (!ObjectId.isValid(id)) return notFound("Note not found.");
+  const _id = new ObjectId(id);
 
   const notes = await notesCollection();
-  const { deletedCount } = await notes.deleteOne({
-    _id: new ObjectId(id),
-    ownerId: user.firebaseUid,
-  });
+  const note = await notes.findOne({ _id, ownerId: user.firebaseUid });
+  if (!note) return notFound("Note not found.");
 
-  if (deletedCount === 0) return notFound("Note not found.");
+  // Cascade: a note's voice notes have no meaning without it, so delete their
+  // blobs, refund each uploader's budget, and drop the records. Done before the
+  // note itself so a failure leaves the note (and thus a retry path) intact.
+  const voiceNotes = await voiceNotesCollection();
+  const voice = await voiceNotes.find({ noteId: _id }).toArray();
+  if (voice.length > 0) {
+    const token = serverEnv().BLOB_READ_WRITE_TOKEN;
+    for (const vn of voice) {
+      await refundBudget(vn.uploaderId, vn.durationSec);
+      if (token) {
+        try {
+          await del(vn.blobPathname, { token });
+        } catch (error) {
+          console.error("[note delete] blob cleanup failed (orphan):", error);
+        }
+      }
+    }
+    await voiceNotes.deleteMany({ noteId: _id });
+  }
+
+  await notes.deleteOne({ _id });
   return new NextResponse(null, { status: 204 });
 }

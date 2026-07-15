@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Download,
   FileText,
   MoreHorizontal,
   Pencil,
@@ -18,6 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -162,7 +164,7 @@ export function NoteCard({ note }: { note: NoteSummary }) {
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem
                 onSelect={() => {
                   setTitle(note.title);
@@ -172,6 +174,21 @@ export function NoteCard({ note }: { note: NoteSummary }) {
                 <Pencil />
                 Rename
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  // A .vnote download: same-origin, so the session cookie rides
+                  // along; the server's Content-Disposition names the file.
+                  const a = document.createElement("a");
+                  a.href = `/api/notes/${note.id}/export`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                }}
+              >
+                <Download />
+                Export .vnote
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
                 onSelect={() => setDeleteOpen(true)}
