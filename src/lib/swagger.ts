@@ -33,6 +33,10 @@ export function getApiSpec(): Record<string, unknown> {
       security: [{ sessionCookie: [] }],
       tags: [
         { name: "Auth", description: "Sign-in, sign-out, and session lifecycle." },
+        {
+          name: "Notes",
+          description: "Create, list, rename, and delete notes (canvas or document).",
+        },
       ],
     },
   }) as Record<string, unknown>;

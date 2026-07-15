@@ -2,7 +2,7 @@ import "server-only";
 
 import { MongoClient, type Db, type Collection } from "mongodb";
 import { serverEnv } from "@/lib/env";
-import type { UserDoc } from "@/lib/models";
+import type { NoteDoc, UserDoc } from "@/lib/models";
 
 /**
  * Serverless-safe Mongo connection.
@@ -61,6 +61,13 @@ async function ensureIndexes(): Promise<void> {
   await db
     .collection<UserDoc>("users")
     .createIndex({ firebaseUid: 1 }, { unique: true, name: "firebaseUid_unique" });
+
+  // The dashboard's only query is "this owner's notes, newest edit first", so a
+  // compound index on exactly that shape lets Atlas serve the list from the
+  // index without a separate sort stage.
+  await db
+    .collection<NoteDoc>("notes")
+    .createIndex({ ownerId: 1, updatedAt: -1 }, { name: "notes_owner_updatedAt" });
 }
 
 export function indexesReady(): Promise<void> {
@@ -75,6 +82,12 @@ export async function usersCollection(): Promise<Collection<UserDoc>> {
   const db = await getDb();
   await indexesReady();
   return db.collection<UserDoc>("users");
+}
+
+export async function notesCollection(): Promise<Collection<NoteDoc>> {
+  const db = await getDb();
+  await indexesReady();
+  return db.collection<NoteDoc>("notes");
 }
 
 /** Round-trips the cluster. Used by the health check to prove connectivity. */
