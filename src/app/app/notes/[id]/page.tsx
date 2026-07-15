@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { notesCollection } from "@/lib/mongodb";
 import { CanvasEditor } from "@/components/notes/canvas-editor";
 import { DocumentEditor } from "@/components/notes/document-editor";
+import { VoicePanel } from "@/components/notes/voice-panel";
 
 // Reads the session cookie and queries Mongo — never prerender this.
 export const dynamic = "force-dynamic";
@@ -40,6 +41,10 @@ export default async function NoteEditorPage({
           initialContent={note.documentContent ?? null}
         />
       )}
+
+      {/* Voice notes work the same on both note types in Phase 4a; canvas pins
+          and inline document blocks arrive in 4b. */}
+      <VoicePanel noteId={id} />
     </div>
   );
 }

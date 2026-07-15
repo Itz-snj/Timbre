@@ -37,6 +37,11 @@ export function getApiSpec(): Record<string, unknown> {
           name: "Notes",
           description: "Create, list, rename, and delete notes (canvas or document).",
         },
+        {
+          name: "Voice notes",
+          description:
+            "Record, list, and delete voice notes. Audio lives in Vercel Blob; Mongo holds only metadata. Per-user 5-minute budget enforced server-side.",
+        },
       ],
     },
   }) as Record<string, unknown>;

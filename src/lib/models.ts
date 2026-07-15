@@ -3,8 +3,7 @@ import type { ObjectId } from "mongodb";
 /**
  * Mongo document shapes. See technical-spec-voicenote-canvas.md §4.
  *
- * `users` and `notes` exist as of Phase 1; `voiceNotes` lands in Phase 4, with
- * its own phase's schemas.
+ * `users` and `notes` exist as of Phase 1; `voiceNotes` as of Phase 4.
  */
 
 export interface UserDoc {
@@ -69,3 +68,43 @@ export interface NoteDoc {
 
 /** Max note-title length. Kept in one place so the API and the UI agree. */
 export const NOTE_TITLE_MAX = 120;
+
+/** Where a voice note is pinned on a canvas note, in excalidraw scene coords. */
+export interface VoiceNotePosition {
+  x: number;
+  y: number;
+}
+
+export interface VoiceNoteDoc {
+  _id?: ObjectId;
+  /** The note this recording belongs to. */
+  noteId: ObjectId;
+  /** Firebase UID of whoever recorded it — the identity charged for the budget. */
+  uploaderId: string;
+  /**
+   * The audio lives in a **private** Vercel Blob store; the audio itself never
+   * touches Mongo (ai_rules §2 rule 3). We keep the pathname (used to stream it
+   * back via `get(..., { access: "private" })` and to delete it) and the blob
+   * URL for reference — but a private URL isn't directly fetchable, so playback
+   * goes through our authenticated proxy (`GET /api/voice/[id]/audio`), never
+   * this URL straight into an `<audio>` tag.
+   */
+  blobPathname: string;
+  blobUrl: string;
+  /** Groq Whisper output, filled in only if the user explicitly transcribes (Phase 4 optional). */
+  transcript: string | null;
+  language: string | null;
+  /**
+   * Pin location for canvas notes; `null` for document notes (where the
+   * recording is referenced inline as a block instead). Set in Phase 4b.
+   */
+  position: VoiceNotePosition | null;
+  /**
+   * Duration in seconds, parsed server-side from the uploaded audio — never the
+   * client-reported value (ai_rules §9). This is what the voice budget counts.
+   */
+  durationSec: number;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: Date;
+}

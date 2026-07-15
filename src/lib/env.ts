@@ -15,6 +15,11 @@ const serverSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().min(1, "FIREBASE_PROJECT_ID is required"),
   FIREBASE_CLIENT_EMAIL: z.email("FIREBASE_CLIENT_EMAIL must be an email"),
   FIREBASE_PRIVATE_KEY: z.string().min(1, "FIREBASE_PRIVATE_KEY is required"),
+
+  // Optional so the rest of the app (Mongo, auth) keeps working before the Blob
+  // store is provisioned — only the voice routes need it, and they check for it
+  // themselves and return a clear error when it's absent (Phase 4, ai_rules §5).
+  BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -30,6 +35,7 @@ export function serverEnv(): ServerEnv {
     FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
     FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
     FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,
+    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
   });
 
   if (!parsed.success) {

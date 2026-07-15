@@ -2,7 +2,7 @@ import "server-only";
 
 import { MongoClient, type Db, type Collection } from "mongodb";
 import { serverEnv } from "@/lib/env";
-import type { NoteDoc, UserDoc } from "@/lib/models";
+import type { NoteDoc, UserDoc, VoiceNoteDoc } from "@/lib/models";
 
 /**
  * Serverless-safe Mongo connection.
@@ -68,6 +68,11 @@ async function ensureIndexes(): Promise<void> {
   await db
     .collection<NoteDoc>("notes")
     .createIndex({ ownerId: 1, updatedAt: -1 }, { name: "notes_owner_updatedAt" });
+
+  // Voice notes are always read as "this note's recordings, oldest first".
+  await db
+    .collection<VoiceNoteDoc>("voiceNotes")
+    .createIndex({ noteId: 1, createdAt: 1 }, { name: "voiceNotes_note_createdAt" });
 }
 
 export function indexesReady(): Promise<void> {
@@ -88,6 +93,12 @@ export async function notesCollection(): Promise<Collection<NoteDoc>> {
   const db = await getDb();
   await indexesReady();
   return db.collection<NoteDoc>("notes");
+}
+
+export async function voiceNotesCollection(): Promise<Collection<VoiceNoteDoc>> {
+  const db = await getDb();
+  await indexesReady();
+  return db.collection<VoiceNoteDoc>("voiceNotes");
 }
 
 /** Round-trips the cluster. Used by the health check to prove connectivity. */
