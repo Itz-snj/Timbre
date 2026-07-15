@@ -17,6 +17,10 @@
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
+    "@tailwindcss/typography": "^0.5.20",
+    "@tiptap/pm": "^3.27.4",
+    "@tiptap/react": "^3.27.4",
+    "@tiptap/starter-kit": "^3.27.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.16.0",

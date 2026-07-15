@@ -52,6 +52,19 @@ export const canvasSaveSchema = z.object({
 
 export type CanvasSaveInput = z.infer<typeof canvasSaveSchema>;
 
+/**
+ * Document autosave body. `content` is a Tiptap/ProseMirror doc JSON
+ * (`{ type: "doc", content: [...] }`), stored verbatim (technical-spec §4) —
+ * same rationale as the canvas payload: Tiptap re-validates it against its
+ * schema on load, so validating the node tree here would be brittle. Zod just
+ * confirms it's an object.
+ */
+export const documentSaveSchema = z.object({
+  content: z.record(z.string(), z.unknown()),
+});
+
+export type DocumentSaveInput = z.infer<typeof documentSaveSchema>;
+
 /** The name a note gets when the user didn't supply one at creation. */
 export function defaultTitle(noteType: NoteType): string {
   return noteType === "canvas" ? "Untitled canvas" : "Untitled document";
