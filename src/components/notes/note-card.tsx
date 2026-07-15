@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   FileText,
@@ -130,7 +131,16 @@ export function NoteCard({ note }: { note: NoteSummary }) {
   return (
     <>
       <div className="group relative flex flex-col gap-4 rounded-2xl border bg-card p-5 transition-colors hover:border-brand/40">
-        <div className="flex items-start justify-between gap-2">
+        {/* Stretched link: the whole card opens the editor, but it sits *behind*
+            the content so the kebab menu (pointer-events re-enabled) still wins
+            its own clicks. Nesting a real button inside an <a> would be invalid. */}
+        <Link
+          href={`/app/notes/${note.id}`}
+          aria-label={`Open ${note.title}`}
+          className="absolute inset-0 z-0 rounded-2xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        />
+
+        <div className="pointer-events-none relative z-10 flex items-start justify-between gap-2">
           <span
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
@@ -146,7 +156,7 @@ export function NoteCard({ note }: { note: NoteSummary }) {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                className="pointer-events-auto text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                 aria-label={`Actions for ${note.title}`}
               >
                 <MoreHorizontal />
@@ -173,7 +183,7 @@ export function NoteCard({ note }: { note: NoteSummary }) {
           </DropdownMenu>
         </div>
 
-        <div className="min-w-0">
+        <div className="pointer-events-none relative z-10 min-w-0">
           <h3 className="truncate font-heading text-lg font-medium tracking-tight">
             {note.title}
           </h3>

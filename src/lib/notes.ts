@@ -36,6 +36,22 @@ export const renameNoteSchema = z.object({
 
 export type RenameNoteInput = z.infer<typeof renameNoteSchema>;
 
+/**
+ * Canvas autosave body. We store the excalidraw elements array verbatim
+ * (technical-spec §4 — "stored as-is") and only a curated subset of appState
+ * (viewport + zoom), never the full appState, which is mostly transient UI
+ * state. `elements` are opaque here: validating each element's shape against
+ * excalidraw's internal types would be brittle and pointless — excalidraw runs
+ * its own `restore()` over them on load. Zod's job at this layer is just to
+ * confirm the envelope is the right shape.
+ */
+export const canvasSaveSchema = z.object({
+  elements: z.array(z.unknown()),
+  appState: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type CanvasSaveInput = z.infer<typeof canvasSaveSchema>;
+
 /** The name a note gets when the user didn't supply one at creation. */
 export function defaultTitle(noteType: NoteType): string {
   return noteType === "canvas" ? "Untitled canvas" : "Untitled document";

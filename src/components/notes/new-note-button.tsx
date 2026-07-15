@@ -21,8 +21,8 @@ import type { NoteType } from "@/lib/models";
  * two, not a form. The note is created with a default title; the user renames it
  * from the card afterwards.
  *
- * Once the editors exist (Phases 2–3) this will navigate into the new note; for
- * now it refreshes the list so the created card appears in place.
+ * Creates the note, then opens it straight in its editor — a new note is
+ * something you want to start filling in, not admire in the list.
  */
 export function NewNoteButton() {
   const router = useRouter();
@@ -39,11 +39,10 @@ export function NewNoteButton() {
 
       if (!res.ok) throw new Error(`Create failed (${res.status})`);
 
-      toast.success(`New ${noteType} note created.`);
-      router.refresh();
+      const { note } = (await res.json()) as { note: { id: string } };
+      router.push(`/app/notes/${note.id}`);
     } catch {
       toast.error("Could not create the note. Please try again.");
-    } finally {
       setIsCreating(false);
     }
   }
