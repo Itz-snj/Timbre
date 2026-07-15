@@ -69,6 +69,9 @@ export interface NoteDoc {
 /** Max note-title length. Kept in one place so the API and the UI agree. */
 export const NOTE_TITLE_MAX = 120;
 
+/** Max voice-note name length. Kept in one place so the API and UI agree. */
+export const VOICE_TITLE_MAX = 80;
+
 /** Where a voice note is pinned on a canvas note, in excalidraw scene coords. */
 export interface VoiceNotePosition {
   x: number;
@@ -81,6 +84,8 @@ export interface VoiceNoteDoc {
   noteId: ObjectId;
   /** Firebase UID of whoever recorded it — the identity charged for the budget. */
   uploaderId: string;
+  /** User-given name for the recording; `null` until named (UI shows "Recording N"). */
+  title: string | null;
   /**
    * The audio lives in a **private** Vercel Blob store; the audio itself never
    * touches Mongo (ai_rules §2 rule 3). We keep the pathname (used to stream it

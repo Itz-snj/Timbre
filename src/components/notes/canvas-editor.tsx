@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, Check, CircleAlert, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, CircleAlert, Loader2, Mic, Trash2, X } from "lucide-react";
 import "@excalidraw/excalidraw/index.css";
 import { cn } from "@/lib/utils";
+import { voiceDisplayName, type VoiceNoteSummary } from "@/lib/voice";
+import {
+  deleteVoiceNote,
+  fmt,
+  type RecPosition,
+} from "@/components/notes/voice-shared";
 
 /**
  * excalidraw is a browser-only canvas (it touches `window`/`document` at import
@@ -83,18 +89,50 @@ function liveElements(elements: ChangeElements): unknown[] {
   );
 }
 
+/**
+ * The view transform needed to place pins over the canvas. excalidraw's own
+ * `sceneCoordsToViewportCoords` reduces to `(scene + scroll) * zoom` when the
+ * overlay shares the canvas's origin (it does — it's `inset-0` in the same
+ * container), so its `offsetLeft/Top` cancel and we don't need to import the
+ * util (which would pull excalidraw into SSR).
+ */
+type ViewTransform = { scrollX: number; scrollY: number; zoom: number };
+
+function readView(appState: unknown): ViewTransform {
+  const a = appState as
+    | { scrollX?: number; scrollY?: number; zoom?: number | { value?: number } }
+    | undefined;
+  const zoom =
+    typeof a?.zoom === "number" ? a.zoom : (a?.zoom?.value ?? 1);
+  return {
+    scrollX: typeof a?.scrollX === "number" ? a.scrollX : 0,
+    scrollY: typeof a?.scrollY === "number" ? a.scrollY : 0,
+    zoom: zoom || 1,
+  };
+}
+
 export function CanvasEditor({
   noteId,
   title,
   initialElements,
   initialAppState,
+  voiceNotes,
+  onVoiceChanged,
+  registerGetPinPosition,
 }: {
   noteId: string;
   title: string;
   initialElements: unknown[];
   initialAppState: Record<string, unknown>;
+  voiceNotes: VoiceNoteSummary[];
+  onVoiceChanged: () => Promise<void>;
+  registerGetPinPosition: (fn: (() => RecPosition | null) | null) => void;
 }) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  // Pins re-position on every pan/zoom, so the view transform is React state.
+  const [view, setView] = useState<ViewTransform>(() => readView(initialAppState));
+  // The canvas area, used to measure viewport centre when dropping a new pin.
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Data from Mongo is opaque JSON; cast through `unknown` into excalidraw's
@@ -146,12 +184,40 @@ export function CanvasEditor({
   const handleChange = useCallback<OnChange>(
     (elements, appState) => {
       latest.current = { elements, appState };
+
+      // Keep pins glued to the scene as the user pans/zooms. Only re-render when
+      // the transform actually moved — not on every element edit.
+      const next = readView(appState);
+      setView((prev) =>
+        prev.scrollX === next.scrollX &&
+        prev.scrollY === next.scrollY &&
+        prev.zoom === next.zoom
+          ? prev
+          : next,
+      );
+
       if (sceneSignature(elements) === savedSig.current) return; // no real change
       setSaveState("unsaved");
       scheduleSave();
     },
     [scheduleSave],
   );
+
+  // Tell the workspace where a new pin should land: the centre of what's
+  // currently on screen, converted back into scene coords. Reads the freshest
+  // appState (kept in `latest`) so it's correct even mid-pan.
+  useEffect(() => {
+    registerGetPinPosition(() => {
+      const el = canvasAreaRef.current;
+      if (!el) return null;
+      const { scrollX, scrollY, zoom } = readView(latest.current.appState);
+      return {
+        x: el.clientWidth / 2 / zoom - scrollX,
+        y: el.clientHeight / 2 / zoom - scrollY,
+      };
+    });
+    return () => registerGetPinPosition(null);
+  }, [registerGetPinPosition]);
 
   // Leaving the editor with a pending debounce would drop the last <800ms of
   // edits. Flush best-effort on unmount with a keepalive request that survives
@@ -199,7 +265,7 @@ export function CanvasEditor({
         <SaveIndicator state={saveState} onRetry={() => void save()} />
       </header>
 
-      <div className="relative flex-1">
+      <div ref={canvasAreaRef} className="relative flex-1">
         <Excalidraw
           initialData={
             {
@@ -210,7 +276,241 @@ export function CanvasEditor({
           }
           onChange={handleChange}
         />
+
+        <PinsOverlay
+          voiceNotes={voiceNotes}
+          view={view}
+          onChanged={onVoiceChanged}
+        />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Voice-note pins floating over the canvas. The layer itself ignores pointer
+ * events so it never blocks drawing; only the pins (and an open popover) take
+ * clicks. Pins are draggable — a drag commits a new scene position, a tap opens
+ * the player.
+ */
+function PinsOverlay({
+  voiceNotes,
+  view,
+  onChanged,
+}: {
+  voiceNotes: VoiceNoteSummary[];
+  view: ViewTransform;
+  onChanged: () => Promise<void>;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const pinned = voiceNotes.filter((v) => v.position);
+
+  const moveVoiceNote = useCallback(
+    async (id: string, position: RecPosition): Promise<boolean> => {
+      let ok = true;
+      try {
+        const res = await fetch(`/api/voice/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ position }),
+        });
+        ok = res.ok;
+      } catch {
+        ok = false;
+      }
+      await onChanged();
+      return ok;
+    },
+    [onChanged],
+  );
+
+  if (pinned.length === 0) return null;
+
+  return (
+    // z-30 is deliberate: excalidraw's canvases set an explicit z-index (1–2),
+    // which beats z-index:auto no matter the DOM order — so the layer must sit
+    // above them to be visible, while staying below the voice drawer (z-50).
+    <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
+      {/* Click-away catcher while a popover is open. */}
+      {openId ? (
+        <button
+          type="button"
+          aria-label="Close voice note"
+          className="pointer-events-auto absolute inset-0 cursor-default"
+          onClick={() => setOpenId(null)}
+        />
+      ) : null}
+
+      {pinned.map((vn, i) => {
+        const left = (vn.position!.x + view.scrollX) * view.zoom;
+        const top = (vn.position!.y + view.scrollY) * view.zoom;
+        return (
+          <VoicePin
+            key={vn.id}
+            index={i}
+            voiceNote={vn}
+            left={left}
+            top={top}
+            view={view}
+            open={openId === vn.id}
+            onToggle={() => setOpenId((cur) => (cur === vn.id ? null : vn.id))}
+            onMoved={moveVoiceNote}
+            onChanged={onChanged}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function VoicePin({
+  index,
+  voiceNote,
+  left,
+  top,
+  view,
+  open,
+  onToggle,
+  onMoved,
+  onChanged,
+}: {
+  index: number;
+  voiceNote: VoiceNoteSummary;
+  left: number;
+  top: number;
+  view: ViewTransform;
+  open: boolean;
+  onToggle: () => void;
+  onMoved: (id: string, position: RecPosition) => Promise<boolean>;
+  onChanged: () => Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const name = voiceDisplayName(voiceNote.title, `Voice note ${index + 1}`);
+  // Live drag delta, applied on top of the committed (left, top). When not
+  // dragging it's zero, so the pin simply follows left/top as the canvas pans.
+  const [offset, setOffset] = useState({ dx: 0, dy: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(
+    null,
+  );
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, moved: false };
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+    setOffset({ dx, dy });
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d) return;
+
+    if (!d.moved) {
+      // A tap, not a drag — open/close the player.
+      setOffset({ dx: 0, dy: 0 });
+      onToggle();
+      return;
+    }
+
+    // A drag — convert the drop point back to scene coords and persist. Keep the
+    // visual offset until the refresh confirms it (or roll it back on failure).
+    const newLeft = left + (e.clientX - d.startX);
+    const newTop = top + (e.clientY - d.startY);
+    const position: RecPosition = {
+      x: newLeft / view.zoom - view.scrollX,
+      y: newTop / view.zoom - view.scrollY,
+    };
+    // Hold the visual offset until the move settles, then clear it: on success
+    // left/top have advanced to the drop point; on failure they're unchanged and
+    // the pin snaps back. Either way the offset returns to zero.
+    void onMoved(voiceNote.id, position).finally(() =>
+      setOffset({ dx: 0, dy: 0 }),
+    );
+  };
+
+  return (
+    <div
+      className="pointer-events-auto absolute"
+      style={{
+        left: left + offset.dx,
+        top: top + offset.dy,
+        transform: "translate(-50%, -50%)",
+      }}
+    >
+      <button
+        type="button"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onKeyDown={(e) => {
+          // Drag is pointer-only; keep the pin operable from the keyboard.
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        aria-label={`${name}, ${fmt(voiceNote.durationSec)}. Drag to move, click to play.`}
+        aria-expanded={open}
+        className={cn(
+          "flex size-9 cursor-grab touch-none items-center justify-center rounded-full border-2 border-background bg-brand text-brand-foreground shadow-md transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing",
+          open && "scale-110 ring-2 ring-ring",
+        )}
+      >
+        <Mic className="size-4" />
+      </button>
+
+      {open ? (
+        <div
+          className="absolute left-1/2 top-[calc(100%+8px)] z-10 w-64 -translate-x-1/2 rounded-xl border bg-popover p-3 shadow-xl"
+          role="dialog"
+          aria-label={name}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs font-medium">
+              {name}
+              <span className="text-muted-foreground">
+                {" · "}
+                {fmt(voiceNote.durationSec)}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={onToggle}
+              className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              aria-label="Close"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <audio
+            controls
+            preload="metadata"
+            src={voiceNote.audioUrl}
+            className="mt-2 h-9 w-full"
+          />
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={async () => {
+              setDeleting(true);
+              await deleteVoiceNote(voiceNote.id);
+              await onChanged();
+            }}
+            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+          >
+            <Trash2 className="size-3.5" />
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

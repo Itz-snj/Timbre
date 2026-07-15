@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { VoiceNoteDoc } from "@/lib/models";
+import { VOICE_TITLE_MAX, type VoiceNoteDoc } from "@/lib/models";
 
 /**
  * Voice-note constants + schemas. See ai_rules.md §9 (budget) and the
@@ -71,10 +71,32 @@ export const voiceUploadMetaSchema = z.object({
   position: positionSchema.nullish(),
 });
 
+/**
+ * Partial update for a voice note — move its pin and/or rename it. At least one
+ * field must be present. `title` may be `null` to clear a name back to untitled.
+ */
+export const voiceUpdateSchema = z
+  .object({
+    position: positionSchema.optional(),
+    title: z.string().trim().max(VOICE_TITLE_MAX).nullable().optional(),
+  })
+  .refine((v) => v.position !== undefined || v.title !== undefined, {
+    message: "Provide a position or a title to update.",
+  });
+
+/** The name to show for a recording — the user's title, or a numbered fallback. */
+export function voiceDisplayName(
+  title: string | null | undefined,
+  fallback: string,
+): string {
+  return title?.trim() || fallback;
+}
+
 export interface VoiceNoteSummary {
   id: string;
   noteId: string;
   uploaderId: string;
+  title: string | null;
   /**
    * Where the client plays the audio from — our own authenticated proxy, not
    * the private blob URL (which the browser can't fetch directly). The real
@@ -96,6 +118,7 @@ export function toVoiceNoteSummary(doc: VoiceNoteDoc): VoiceNoteSummary {
     id,
     noteId: doc.noteId.toString(),
     uploaderId: doc.uploaderId,
+    title: doc.title ?? null,
     audioUrl: `/api/voice/${id}/audio`,
     transcript: doc.transcript,
     language: doc.language,

@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AudioLines,
   CircleAlert,
+  FileDown,
   Loader2,
   Mic,
+  Pencil,
   Square,
   Trash2,
   X,
@@ -21,68 +23,48 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { VOICE_BUDGET_SECONDS } from "@/lib/models";
-import type { VoiceNoteSummary } from "@/lib/voice";
+import { voiceDisplayName, type VoiceNoteSummary } from "@/lib/voice";
+import { VOICE_TITLE_MAX } from "@/lib/models";
 import { cn } from "@/lib/utils";
+import {
+  deleteVoiceNote,
+  fmt,
+  renameVoiceNote,
+  useVoiceRecorder,
+  type Budget,
+  type RecPosition,
+} from "@/components/notes/voice-shared";
 
-/** mm:ss — voice durations always read as time, never a raw second count. */
-function fmt(totalSeconds: number): string {
-  const s = Math.max(0, Math.round(totalSeconds));
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
-}
-
-/** Pick the best audio container the browser can actually record. */
-function pickMimeType(): string {
-  if (typeof MediaRecorder === "undefined") return "";
-  for (const c of [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/ogg",
-    "audio/mp4",
-  ]) {
-    if (MediaRecorder.isTypeSupported(c)) return c;
-  }
-  return "";
-}
-
-type Budget = { usedSeconds: number; limitSeconds: number };
-
-export function VoicePanel({ noteId }: { noteId: string }) {
+/**
+ * Floating record/list/budget surface, mounted on both note types. State is
+ * owned by `NoteWorkspace` and passed in, so the panel, canvas pins, and inline
+ * document blocks all read one list and stay in sync (Phase 4b).
+ *
+ * `getPosition` (canvas) tags a new recording with a pin location; `onInserted`
+ * (document) is called with the created voice note so it can be dropped inline.
+ */
+export function VoicePanel({
+  noteId,
+  voiceNotes,
+  budget,
+  onChanged,
+  getPosition,
+  onInserted,
+  onAddToDocument,
+}: {
+  noteId: string;
+  voiceNotes: VoiceNoteSummary[];
+  budget: Budget;
+  onChanged: () => Promise<void>;
+  getPosition?: () => RecPosition | null;
+  onInserted?: (voiceNote: VoiceNoteSummary) => void;
+  /** Document notes only: re-insert an existing recording as an inline block. */
+  onAddToDocument?: (voiceNote: VoiceNoteSummary) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const [notes, setNotes] = useState<VoiceNoteSummary[]>([]);
-  const [budget, setBudget] = useState<Budget>({
-    usedSeconds: 0,
-    limitSeconds: VOICE_BUDGET_SECONDS,
-  });
-  const [loaded, setLoaded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<VoiceNoteSummary | null>(
     null,
   );
-
-  const refresh = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/notes/${noteId}/voice`);
-      if (!res.ok) throw new Error(String(res.status));
-      const data = (await res.json()) as {
-        voiceNotes: VoiceNoteSummary[];
-        budget: Budget;
-      };
-      setNotes(data.voiceNotes);
-      setBudget(data.budget);
-    } catch {
-      // Non-fatal: the panel just shows whatever it last had.
-    } finally {
-      setLoaded(true);
-    }
-  }, [noteId]);
-
-  useEffect(() => {
-    // Initial load on mount. setState happens only after the awaited fetch
-    // resolves, not synchronously in the effect body.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refresh();
-  }, [refresh]);
 
   const remaining = Math.max(0, budget.limitSeconds - budget.usedSeconds);
 
@@ -92,13 +74,13 @@ export function VoicePanel({ noteId }: { noteId: string }) {
         type="button"
         onClick={() => setOpen(true)}
         className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-brand px-4 py-3 text-sm font-medium text-brand-foreground shadow-lg transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
-        aria-label={`Voice notes${notes.length ? ` (${notes.length})` : ""}`}
+        aria-label={`Voice notes${voiceNotes.length ? ` (${voiceNotes.length})` : ""}`}
       >
         <AudioLines className="size-4" />
         Voice
-        {notes.length > 0 ? (
+        {voiceNotes.length > 0 ? (
           <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-brand-foreground/20 px-1.5 text-xs tabular-nums">
-            {notes.length}
+            {voiceNotes.length}
           </span>
         ) : null}
       </button>
@@ -106,12 +88,14 @@ export function VoicePanel({ noteId }: { noteId: string }) {
       {open ? (
         <VoiceDrawer
           noteId={noteId}
-          notes={notes}
+          voiceNotes={voiceNotes}
           budget={budget}
           remaining={remaining}
-          loaded={loaded}
           onClose={() => setOpen(false)}
-          onChanged={refresh}
+          onChanged={onChanged}
+          getPosition={getPosition}
+          onInserted={onInserted}
+          onAddToDocument={onAddToDocument}
           onRequestDelete={setPendingDelete}
         />
       ) : null}
@@ -136,21 +120,12 @@ export function VoicePanel({ noteId }: { noteId: string }) {
               onClick={async (event) => {
                 event.preventDefault();
                 const target = pendingDelete;
+                setPendingDelete(null);
                 if (!target) return;
-                try {
-                  const res = await fetch(`/api/voice/${target.id}`, {
-                    method: "DELETE",
-                  });
-                  if (!res.ok && res.status !== 404) {
-                    throw new Error(String(res.status));
-                  }
+                if (await deleteVoiceNote(target.id)) {
                   toast.success("Recording deleted.");
-                } catch {
-                  toast.error("Could not delete the recording.");
-                } finally {
-                  setPendingDelete(null);
-                  void refresh();
                 }
+                await onChanged();
               }}
             >
               Delete
@@ -164,21 +139,25 @@ export function VoicePanel({ noteId }: { noteId: string }) {
 
 function VoiceDrawer({
   noteId,
-  notes,
+  voiceNotes,
   budget,
   remaining,
-  loaded,
   onClose,
   onChanged,
+  getPosition,
+  onInserted,
+  onAddToDocument,
   onRequestDelete,
 }: {
   noteId: string;
-  notes: VoiceNoteSummary[];
+  voiceNotes: VoiceNoteSummary[];
   budget: Budget;
   remaining: number;
-  loaded: boolean;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  getPosition?: () => RecPosition | null;
+  onInserted?: (voiceNote: VoiceNoteSummary) => void;
+  onAddToDocument?: (voiceNote: VoiceNoteSummary) => void;
   onRequestDelete: (note: VoiceNoteSummary) => void;
 }) {
   useEffect(() => {
@@ -224,7 +203,6 @@ function VoiceDrawer({
           </button>
         </header>
 
-        {/* Budget */}
         <div className="border-b px-4 py-3">
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Voice budget</span>
@@ -255,19 +233,16 @@ function VoiceDrawer({
           </div>
         </div>
 
-        <Recorder
+        <RecorderControls
           noteId={noteId}
           remaining={remaining}
-          onUploaded={onChanged}
+          getPosition={getPosition}
+          onChanged={onChanged}
+          onInserted={onInserted}
         />
 
-        {/* List */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          {!loaded ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Loading…
-            </p>
-          ) : notes.length === 0 ? (
+          {voiceNotes.length === 0 ? (
             <div className="flex flex-col items-center py-10 text-center">
               <span className="flex size-11 items-center justify-center rounded-2xl bg-brand-muted text-brand">
                 <Mic className="size-5" />
@@ -280,31 +255,16 @@ function VoiceDrawer({
             </div>
           ) : (
             <ul className="space-y-3">
-              {notes.map((note, i) => (
-                <li
+              {voiceNotes.map((note, i) => (
+                <VoiceNoteRow
                   key={note.id}
-                  className="rounded-xl border bg-card p-3"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Recording {i + 1} · {fmt(note.durationSec)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onRequestDelete(note)}
-                      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      aria-label={`Delete recording ${i + 1}`}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                  <audio
-                    controls
-                    preload="metadata"
-                    src={note.audioUrl}
-                    className="mt-2 h-9 w-full"
-                  />
-                </li>
+                  note={note}
+                  index={i}
+                  onChanged={onChanged}
+                  onAddToDocument={onAddToDocument}
+                  onRequestDelete={onRequestDelete}
+                  onClose={onClose}
+                />
               ))}
             </ul>
           )}
@@ -314,134 +274,139 @@ function VoiceDrawer({
   );
 }
 
-type RecState = "idle" | "recording" | "uploading";
+function VoiceNoteRow({
+  note,
+  index,
+  onChanged,
+  onAddToDocument,
+  onRequestDelete,
+  onClose,
+}: {
+  note: VoiceNoteSummary;
+  index: number;
+  onChanged: () => Promise<void>;
+  onAddToDocument?: (voiceNote: VoiceNoteSummary) => void;
+  onRequestDelete: (note: VoiceNoteSummary) => void;
+  onClose: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(note.title ?? "");
+  const fallback = `Recording ${index + 1}`;
+  const displayName = voiceDisplayName(note.title, fallback);
 
-function Recorder({
+  async function commit() {
+    setEditing(false);
+    const trimmed = name.trim();
+    if (trimmed === (note.title ?? "")) return; // unchanged
+    if (await renameVoiceNote(note.id, trimmed.length ? trimmed : null)) {
+      await onChanged();
+    }
+  }
+
+  return (
+    <li className="rounded-xl border bg-card p-3">
+      <div className="flex items-center justify-between gap-2">
+        {editing ? (
+          <input
+            autoFocus
+            value={name}
+            maxLength={VOICE_TITLE_MAX}
+            placeholder={fallback}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => void commit()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void commit();
+              } else if (e.key === "Escape") {
+                setName(note.title ?? "");
+                setEditing(false);
+              }
+            }}
+            className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            aria-label="Recording name"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setName(note.title ?? "");
+              setEditing(true);
+            }}
+            className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            title="Rename recording"
+          >
+            <span className="truncate text-sm font-medium">{displayName}</span>
+            <Pencil className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+          </button>
+        )}
+
+        {!editing ? (
+          <div className="flex shrink-0 items-center gap-0.5">
+            {onAddToDocument ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onAddToDocument(note);
+                  toast.success("Added to the document.");
+                  onClose();
+                }}
+                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                aria-label={`Add ${displayName} to the document`}
+                title="Add to document"
+              >
+                <FileDown className="size-3.5" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onRequestDelete(note)}
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              aria-label={`Delete ${displayName}`}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {fmt(note.durationSec)}
+        {note.position ? " · pinned" : ""}
+      </p>
+
+      <audio
+        controls
+        preload="metadata"
+        src={note.audioUrl}
+        className="mt-2 h-9 w-full"
+      />
+    </li>
+  );
+}
+
+function RecorderControls({
   noteId,
   remaining,
-  onUploaded,
+  getPosition,
+  onChanged,
+  onInserted,
 }: {
   noteId: string;
   remaining: number;
-  onUploaded: () => Promise<void>;
+  getPosition?: () => RecPosition | null;
+  onChanged: () => Promise<void>;
+  onInserted?: (voiceNote: VoiceNoteSummary) => void;
 }) {
-  const [state, setState] = useState<RecState>("idle");
-  const [elapsed, setElapsed] = useState(0);
-
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Latest remaining budget, readable from inside the interval without it being
-  // a dependency (which would restart the timer every refresh).
-  const remainingRef = useRef(remaining);
-  useEffect(() => {
-    remainingRef.current = remaining;
-  }, [remaining]);
-
-  const stopTracks = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => stopTracks, [stopTracks]);
-
-  const upload = useCallback(
-    async (blob: Blob, mimeType: string) => {
-      setState("uploading");
-      try {
-        const file = new File([blob], "voice-note", { type: mimeType });
-        const form = new FormData();
-        form.append("audio", file);
-
-        const res = await fetch(`/api/notes/${noteId}/voice`, {
-          method: "POST",
-          body: form,
-        });
-
-        if (res.status === 403) {
-          toast.error("That would exceed your 5-minute voice budget.");
-        } else if (!res.ok) {
-          throw new Error(String(res.status));
-        } else {
-          toast.success("Voice note saved.");
-        }
-      } catch {
-        toast.error("Could not save the recording. Please try again.");
-      } finally {
-        setState("idle");
-        setElapsed(0);
-        await onUploaded();
-      }
+  const { state, elapsed, start, stop } = useVoiceRecorder({
+    noteId,
+    remaining,
+    getPosition,
+    onUploaded: async (voiceNote) => {
+      if (voiceNote && onInserted) onInserted(voiceNote);
+      await onChanged();
     },
-    [noteId, onUploaded],
-  );
-
-  const start = useCallback(async () => {
-    if (remainingRef.current <= 0) {
-      toast.error("Your voice budget is full. Delete a recording to free space.");
-      return;
-    }
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      toast.error("Microphone access is needed to record.");
-      return;
-    }
-
-    const mimeType = pickMimeType();
-    const recorder = new MediaRecorder(
-      stream,
-      // Low bitrate keeps a full-budget recording well under Vercel's request
-      // size limit (the upload goes through our API route, not direct-to-Blob).
-      mimeType
-        ? { mimeType, audioBitsPerSecond: 64_000 }
-        : { audioBitsPerSecond: 64_000 },
-    );
-    chunksRef.current = [];
-    recorderRef.current = recorder;
-    streamRef.current = stream;
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data);
-    };
-    recorder.onstop = () => {
-      stopTracks();
-      const type = recorder.mimeType || mimeType || "audio/webm";
-      const blob = new Blob(chunksRef.current, { type });
-      if (blob.size > 0) void upload(blob, type);
-      else setState("idle");
-    };
-
-    recorder.start();
-    setState("recording");
-    setElapsed(0);
-
-    tickRef.current = setInterval(() => {
-      setElapsed((prev) => {
-        const next = prev + 1;
-        // Can't record past the remaining budget — auto-stop at the ceiling.
-        if (next >= remainingRef.current) {
-          if (recorderRef.current?.state === "recording") {
-            recorderRef.current.stop();
-          }
-          toast.info("Reached your remaining voice budget — recording stopped.");
-        }
-        return next;
-      });
-    }, 1000);
-  }, [stopTracks, upload]);
-
-  const stop = useCallback(() => {
-    if (recorderRef.current?.state === "recording") {
-      recorderRef.current.stop();
-    }
-  }, []);
+  });
 
   const budgetFull = remaining <= 0;
 

@@ -233,6 +233,7 @@ export async function POST(
   const doc: VoiceNoteDoc = {
     noteId,
     uploaderId: user.firebaseUid,
+    title: null,
     blobPathname,
     blobUrl,
     transcript: null,

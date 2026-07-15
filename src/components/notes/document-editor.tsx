@@ -26,6 +26,8 @@ import {
   Strikethrough,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { VoiceNoteSummary } from "@/lib/voice";
+import { VoiceBlock } from "@/components/notes/voice-block-extension";
 
 type SaveState = "saved" | "unsaved" | "saving" | "error";
 
@@ -36,12 +38,24 @@ export function DocumentEditor({
   noteId,
   title,
   initialContent,
+  onVoiceChanged,
+  registerInsertVoiceBlock,
 }: {
   noteId: string;
   title: string;
   initialContent: Record<string, unknown> | null;
+  onVoiceChanged: () => Promise<void>;
+  registerInsertVoiceBlock: (
+    fn: ((vn: VoiceNoteSummary) => void) | null,
+  ) => void;
 }) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
+
+  // `onVoiceChanged` is the workspace's `refresh` (a stable useCallback), so the
+  // editor — created once — safely captures this; no ref indirection needed.
+  const onVoiceDeleted = useCallback(() => {
+    void onVoiceChanged();
+  }, [onVoiceChanged]);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // `dirty` tracks whether there are edits not yet persisted; `latest` holds the
@@ -80,7 +94,7 @@ export function DocumentEditor({
   }, [save]);
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [StarterKit, VoiceBlock.configure({ onDeleted: onVoiceDeleted })],
     // Tiptap must not render during SSR or it hydration-mismatches — this whole
     // component is client-side, but Next still server-renders client components.
     immediatelyRender: false,
@@ -122,6 +136,26 @@ export function DocumentEditor({
       flush();
     };
   }, [flush]);
+
+  // Expose "insert a voice block at the cursor" to the workspace, so a recording
+  // made in the panel drops inline where the user was typing.
+  useEffect(() => {
+    if (!editor) return;
+    registerInsertVoiceBlock((vn) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "voiceNote",
+          attrs: { voiceNoteId: vn.id, title: vn.title },
+        })
+        // Jump to the freshly inserted block — otherwise, with the cursor at the
+        // end of a long doc, it lands below the fold and looks like nothing happened.
+        .scrollIntoView()
+        .run();
+    });
+    return () => registerInsertVoiceBlock(null);
+  }, [editor, registerInsertVoiceBlock]);
 
   return (
     <div className="flex h-full flex-col">

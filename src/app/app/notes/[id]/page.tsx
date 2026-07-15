@@ -2,9 +2,7 @@ import { notFound } from "next/navigation";
 import { ObjectId } from "mongodb";
 import { requireUser } from "@/lib/auth";
 import { notesCollection } from "@/lib/mongodb";
-import { CanvasEditor } from "@/components/notes/canvas-editor";
-import { DocumentEditor } from "@/components/notes/document-editor";
-import { VoicePanel } from "@/components/notes/voice-panel";
+import { NoteWorkspace } from "@/components/notes/note-workspace";
 
 // Reads the session cookie and queries Mongo — never prerender this.
 export const dynamic = "force-dynamic";
@@ -26,25 +24,13 @@ export default async function NoteEditorPage({
   if (!note || note.ownerId !== user.firebaseUid) notFound();
 
   return (
-    <div className="h-[calc(100dvh-4rem)]">
-      {note.noteType === "canvas" ? (
-        <CanvasEditor
-          noteId={id}
-          title={note.title}
-          initialElements={note.canvasElements ?? []}
-          initialAppState={note.canvasAppState ?? {}}
-        />
-      ) : (
-        <DocumentEditor
-          noteId={id}
-          title={note.title}
-          initialContent={note.documentContent ?? null}
-        />
-      )}
-
-      {/* Voice notes work the same on both note types in Phase 4a; canvas pins
-          and inline document blocks arrive in 4b. */}
-      <VoicePanel noteId={id} />
-    </div>
+    <NoteWorkspace
+      noteId={id}
+      noteType={note.noteType}
+      title={note.title}
+      initialElements={note.canvasElements ?? []}
+      initialAppState={note.canvasAppState ?? {}}
+      initialContent={note.documentContent ?? null}
+    />
   );
 }
