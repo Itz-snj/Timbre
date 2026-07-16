@@ -213,7 +213,139 @@
 }
 
 @layer utilities {
-  /* The pulse behind an active record button. Respects reduced-motion below. */
+  /* ── Trust-rail infinite marquee ── */
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+  .animate-marquee {
+    animation: marquee 45s linear infinite;
+    will-change: transform;
+  }
+
+  /* ── Background blob drift ── */
+  @keyframes blob-drift {
+    0%, 100% { transform: translate(0,    0)    scale(1);    }
+    33%       { transform: translate(28px, -18px) scale(1.05); }
+    66%       { transform: translate(-18px, 12px) scale(0.96); }
+  }
+  .animate-blob { animation: blob-drift 16s ease-in-out infinite; }
+  .animation-delay-2000 { animation-delay: -3s; }
+  .animation-delay-4000 { animation-delay: -7s; }
+
+  /* ── Paper-grain noise overlay ──
+     Uses an inline SVG data-url for a subtle fBm noise. Very soft at 3% opacity
+     so it reads as warm-paper texture rather than digital grain. */
+  .noise-overlay {
+    position: relative;
+  }
+  .noise-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 180px 180px;
+  }
+  .noise-overlay > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Scroll-reveal: fade-in-up ──
+     Uses CSS animation-timeline: view() for scroll-driven animation.
+     Falls back to a simple opacity: 1 for browsers that don't support it. */
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .reveal-on-scroll {
+    opacity: 0;
+    animation: fade-in-up 1s ease-out forwards;
+    animation-timeline: view();
+    animation-range: entry 0% entry 35%;
+  }
+
+  /* Fallback: if animation-timeline isn't supported, just show content */
+  @supports not (animation-timeline: view()) {
+    .reveal-on-scroll {
+      opacity: 1;
+      transform: none;
+      animation: none;
+    }
+  }
+
+  /* ── Hero headline brand shimmer ── */
+  @keyframes shimmer-slide {
+    from { background-position: -200% center; }
+    to   { background-position: 200% center; }
+  }
+  .hero-headline-shimmer {
+    background: linear-gradient(
+      105deg,
+      var(--foreground) 0%,
+      var(--foreground) 40%,
+      var(--brand) 50%,
+      var(--foreground) 60%,
+      var(--foreground) 100%
+    );
+    background-size: 200% auto;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer-slide 4s linear infinite;
+  }
+
+  /* ── Feature card hover micro-interaction ── */
+  .feature-card {
+    transition: shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  }
+  .feature-card:hover {
+    border-color: var(--brand-muted);
+    box-shadow: 0 4px 24px -4px oklch(0.51 0.19 276 / 0.08);
+    transform: translateY(-2px);
+  }
+  .feature-card:hover .feature-icon {
+    transform: scale(1.1);
+  }
+  .feature-icon {
+    transition: transform 0.25s ease;
+  }
+
+  /* ── Gradient section divider ── */
+  .gradient-divider {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--border) 15%,
+      var(--brand-muted) 50%,
+      var(--border) 85%,
+      transparent
+    );
+    border: none;
+  }
+
+  /* Hidden scrollbar utility */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ── The pulse behind an active record button. Respects reduced-motion below. ── */
   @keyframes record-pulse {
     0%,
     100% {

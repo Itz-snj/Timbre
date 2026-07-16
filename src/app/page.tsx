@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Download,
   FileText,
-  Mic,
   Package,
   PenLine,
   Upload,
@@ -17,18 +16,13 @@ import { DocumentTeaser, CollabTeaser } from "@/components/landing-visuals";
 import { SignInButton } from "@/components/sign-in-button";
 import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
+import { TrustRail } from "@/components/landing/trust-rail";
+import { FeatureGrid } from "@/components/landing/feature-grid";
 import { getSession } from "@/lib/auth";
+import { site } from "@/lib/site";
 
 // The header reads the session cookie, so this page renders per-request.
 export const dynamic = "force-dynamic";
-
-const SECTIONS = [
-  { id: "how", n: "01", label: "How it works" },
-  { id: "modes", n: "02", label: "Two modes" },
-  { id: "collaborate", n: "03", label: "Collaborate" },
-  { id: "formats", n: "04", label: "The .vnote format" },
-  { id: "limits", n: "05", label: "Limits" },
-];
 
 export default async function LandingPage() {
   // A signed-in visitor shouldn't be asked to sign in again — send them onward.
@@ -64,14 +58,35 @@ export default async function LandingPage() {
         </div>
       </header>
 
-      <main id="main" className="flex-1">
+      <main id="main" className="noise-overlay relative flex-1 overflow-hidden">
+        {/* ── Ambient colour blobs ── */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+        >
+          {/* Indigo — upper right */}
+          <div
+            className="animate-blob absolute -right-32 -top-16 h-[640px] w-[640px] rounded-full blur-[110px]"
+            style={{ background: "oklch(0.51 0.19 276 / 0.065)" }}
+          />
+          {/* Teal — mid left */}
+          <div
+            className="animate-blob animation-delay-2000 absolute -left-24 top-[38%] h-[520px] w-[520px] rounded-full blur-[100px]"
+            style={{ background: "oklch(0.58 0.12 196 / 0.05)" }}
+          />
+          {/* Amber — lower right */}
+          <div
+            className="animate-blob animation-delay-4000 absolute bottom-[10%] right-[15%] h-[460px] w-[460px] rounded-full blur-[100px]"
+            style={{ background: "oklch(0.66 0.14 62 / 0.05)" }}
+          />
+        </div>
+
         <Hero isSignedIn={isSignedIn} />
-        <TocNav />
-        <HowItWorks />
+        <TrustRail />
         <NoteTypes />
         <Collaborate />
+        <FeatureGrid />
         <PortableFormat />
-        <Limits isSignedIn={isSignedIn} />
       </main>
 
       <SiteFooter />
@@ -88,22 +103,19 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
         className="pointer-events-none absolute inset-x-0 -top-40 h-[520px] bg-[radial-gradient(60%_60%_at_50%_0%,var(--brand-muted),transparent)]"
       />
 
-      <div className="relative mx-auto grid max-w-7xl gap-10 px-6 py-12 lg:grid-cols-[1fr_1.15fr] lg:items-center lg:py-20">
+      <div className="relative mx-auto grid max-w-7xl gap-10 px-6 py-20 lg:grid-cols-[1fr_1.15fr] lg:items-center lg:py-28">
         <div>
           <p className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
             <span className="size-1.5 rounded-full bg-record" />
             Voice-first notes
           </p>
 
-          <h1 className="mt-6 text-balance font-heading text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
-            The note that talks back.
+          <h1 className="hero-headline-shimmer mt-6 text-balance font-heading text-6xl font-semibold leading-[0.97] tracking-tight sm:text-7xl lg:text-8xl">
+            {site.landing.heroHeadline}
           </h1>
 
           <p className="mt-6 max-w-md text-pretty text-lg leading-relaxed text-muted-foreground">
-            The recording{" "}
-            <em className="font-medium not-italic text-foreground">is</em> the
-            note — any length, any language. Sketch around it, or write around
-            it.
+            {site.landing.heroSub}
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -118,105 +130,17 @@ function Hero({ isSignedIn }: { isSignedIn: boolean }) {
                 <SignInButton />
               </Suspense>
             )}
-            <Button asChild variant="ghost" size="lg">
-              <Link href="#how">See how it works</Link>
+            <Button asChild variant="outline" size="lg">
+              <Link href="#modes">See it in action</Link>
             </Button>
           </div>
 
           <p className="mt-5 text-sm text-muted-foreground">
-            Google sign-in · 5 minutes of recording per account · free
+            {site.landing.heroReassurance}
           </p>
         </div>
 
         <HeroTeaser />
-      </div>
-    </section>
-  );
-}
-
-/** delayt-style numbered table of contents for the page. */
-function TocNav() {
-  return (
-    <nav
-      aria-label="On this page"
-      className="border-y bg-muted/20"
-    >
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-4">
-        <span className="font-mono text-xs text-muted-foreground">{"// on this page"}</span>
-        <ul className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          {SECTIONS.map((s) => (
-            <li key={s.id}>
-              <Link
-                href={`#${s.id}`}
-                className="group inline-flex items-baseline gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <span className="font-mono text-xs text-brand">{s.n}</span>
-                {s.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </nav>
-  );
-}
-
-function HowItWorks() {
-  const steps = [
-    {
-      n: "01",
-      icon: Mic,
-      title: "Record",
-      copy: "Hit record and talk — however long you need, in any language. The audio is saved as the content itself. No transcription required to keep it.",
-    },
-    {
-      n: "02",
-      icon: PenLine,
-      title: "Place it",
-      copy: "Pin the recording to an exact spot on a canvas, or drop it inline as a block in a document. It lives where it actually makes sense.",
-    },
-    {
-      n: "03",
-      icon: Package,
-      title: "Carry it",
-      copy: "Export the whole note — drawing, text and real audio — as one .vnote file. Hand it to someone. Re-open it here and it plays back exactly.",
-    },
-  ];
-
-  return (
-    <section id="how" className="scroll-mt-20 border-b">
-      <div className="mx-auto max-w-7xl px-6 py-12">
-        <p className="font-mono text-xs text-muted-foreground">{"// 01 · how it works"}</p>
-        <h2 className="mt-3 max-w-2xl text-balance font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
-          Record, place, carry.
-        </h2>
-        <p className="mt-4 max-w-xl text-pretty text-muted-foreground">
-          Three steps, and the voice memo never leaves the note it belongs to.
-        </p>
-
-        <ol className="mt-8 grid gap-6 md:grid-cols-3">
-          {steps.map((step) => (
-            <li
-              key={step.n}
-              className="relative rounded-2xl border bg-card p-6 transition-shadow hover:shadow-md"
-            >
-              <div className="flex items-center justify-between">
-                <span className="flex size-9 items-center justify-center rounded-lg bg-brand-muted text-brand">
-                  <step.icon className="size-4" />
-                </span>
-                <span className="font-mono text-sm text-muted-foreground">
-                  {step.n}
-                </span>
-              </div>
-              <h3 className="mt-5 font-heading text-lg font-semibold tracking-tight">
-                {step.title}
-              </h3>
-              <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
-                {step.copy}
-              </p>
-            </li>
-          ))}
-        </ol>
       </div>
     </section>
   );
@@ -239,9 +163,12 @@ function NoteTypes() {
   ];
 
   return (
-    <section id="modes" className="scroll-mt-20 border-b bg-muted/20">
+    <section id="modes" className="reveal-on-scroll scroll-mt-20 bg-muted/20">
+      <div aria-hidden="true" className="gradient-divider" />
       <div className="mx-auto max-w-7xl px-6 py-12">
-        <p className="font-mono text-xs text-muted-foreground">{"// 02 · two modes"}</p>
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          Two modes
+        </p>
         <h2 className="mt-3 max-w-2xl text-balance font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
           Two ways to think. Pick one per note.
         </h2>
@@ -270,7 +197,7 @@ function NoteTypes() {
             ))}
           </div>
 
-          {/* Document mode, shown. (Canvas mode is in the hero.) */}
+          {/* Document mode mock. Canvas mode is in the hero. */}
           <DocumentTeaser />
         </div>
       </div>
@@ -280,10 +207,13 @@ function NoteTypes() {
 
 function Collaborate() {
   return (
-    <section id="collaborate" className="scroll-mt-20 border-b">
+    <section id="collaborate" className="reveal-on-scroll scroll-mt-20">
+      <div aria-hidden="true" className="gradient-divider" />
       <div className="mx-auto grid max-w-7xl gap-8 px-6 py-12 lg:grid-cols-2 lg:items-center">
         <div>
-          <p className="font-mono text-xs text-muted-foreground">{"// 03 · collaborate"}</p>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+            Collaborate
+          </p>
           <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-brand-muted px-2.5 py-1 text-xs font-medium text-brand">
             <Users className="size-3.5" />
             Live
@@ -326,9 +256,12 @@ function Collaborate() {
 
 function PortableFormat() {
   return (
-    <section id="formats" className="scroll-mt-20 border-b bg-muted/20">
+    <section id="formats" className="reveal-on-scroll scroll-mt-20 bg-muted/20">
+      <div aria-hidden="true" className="gradient-divider" />
       <div className="mx-auto max-w-7xl px-6 py-12">
-        <p className="font-mono text-xs text-muted-foreground">{"// 04 · the .vnote format"}</p>
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          The .vnote format
+        </p>
         <div className="mt-3 grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full bg-brand-muted px-2.5 py-1 text-xs font-medium text-brand">
@@ -450,61 +383,5 @@ function RoundTrip({
         {copy}
       </p>
     </div>
-  );
-}
-
-function Limits({ isSignedIn }: { isSignedIn: boolean }) {
-  const rows = [
-    ["recording", "up to 5:00 total per account"],
-    ["languages", "any — the audio is the note, language-agnostic"],
-    ["note types", "canvas · document"],
-    ["collaboration", "live · one room per note · editor / viewer roles"],
-    ["portable file", ".vnote — a zip carrying manifest + audio"],
-    ["audio storage", "private, streamed on demand — never public"],
-    ["sign-in", "Google"],
-  ];
-
-  return (
-    <section id="limits" className="scroll-mt-20">
-      <div className="mx-auto max-w-7xl px-6 py-12">
-        <p className="font-mono text-xs text-muted-foreground">{"// 05 · limits & availability"}</p>
-        <div className="mt-3 grid gap-8 lg:grid-cols-[1fr_1.4fr] lg:items-center">
-          <div>
-            <h2 className="text-balance font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
-              The honest spec sheet.
-            </h2>
-            <p className="mt-4 text-pretty text-muted-foreground">
-              What you get, stated plainly. No asterisks.
-            </p>
-
-            <div className="mt-8">
-              {isSignedIn ? (
-                <Button asChild size="lg">
-                  <Link href="/app">
-                    Open your notes <ArrowRight className="size-4" />
-                  </Link>
-                </Button>
-              ) : (
-                <Suspense fallback={<div className="h-11 w-56" />}>
-                  <SignInButton>Start with Google</SignInButton>
-                </Suspense>
-              )}
-            </div>
-          </div>
-
-          <dl className="divide-y rounded-2xl border bg-card font-mono text-sm">
-            {rows.map(([key, value]) => (
-              <div
-                key={key}
-                className="flex flex-col gap-1 px-6 py-4 sm:flex-row sm:items-baseline sm:gap-6"
-              >
-                <dt className="w-40 shrink-0 text-muted-foreground">{key}</dt>
-                <dd className="text-foreground">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </div>
-    </section>
   );
 }

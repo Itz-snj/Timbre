@@ -9,6 +9,7 @@ export function SiteFooter() {
         <p className="text-sm text-muted-foreground">
           Built by{" "}
           <span className="font-medium text-foreground">{site.author.name}</span>
+          <span className="mx-1.5 font-mono text-xs text-brand/70">itz-snj</span>
           {" · "}
           <Link
             href="/api-doc"

@@ -15,4 +15,16 @@ export const site = {
     github: "https://github.com/Itz-snj",
     linkedin: "https://www.linkedin.com/in/suman-naresh-jain",
   },
+
+  /** Marketing copy for the landing page — edit here, not in JSX. */
+  landing: {
+    announcement: "New — live collaboration and .vnote export are live.",
+    heroHeadline: "The note that talks back.",
+    heroSub:
+      "The recording is the note — any length, any language. Sketch around it, or write around it.",
+    heroReassurance: "Google sign-in · 5 minutes of recording per account · free",
+    closingHeadline: "Start talking your notes.",
+    closingSub: "Google sign-in. 5 minutes of recording. No credit card.",
+    closingReassurance: "Free to use · private audio · one-file export",
+  },
 } as const;
