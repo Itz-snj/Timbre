@@ -5,7 +5,7 @@ import { site } from "@/lib/site";
 export function SiteFooter() {
   return (
     <footer className="border-t bg-muted/30">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-8 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
           Built by{" "}
           <span className="font-medium text-foreground">{site.author.name}</span>

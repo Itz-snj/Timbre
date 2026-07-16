@@ -11,9 +11,8 @@ export const site = {
     "Sketch on a canvas or write a document, then record straight into it. The voice note is the note — any length, any language. Export the whole thing, audio and all, as one portable file.",
 
   author: {
-    // TODO(submission): replace the placeholders below with your real details.
     name: "Suman Jain",
     github: "https://github.com/Itz-snj",
-    linkedin: "https://www.linkedin.com/in/",
+    linkedin: "https://www.linkedin.com/in/suman-naresh-jain",
   },
 } as const;
