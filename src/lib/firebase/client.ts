@@ -61,29 +61,43 @@ export async function signInWithGoogleRedirect(): Promise<void> {
   await signInWithRedirect(auth(), provider);
 }
 
+let redirectPromise: Promise<boolean> | null = null;
+
 /**
  * Call this on mount to catch the credential after returning from a redirect.
  * It completes the sign-in by trading the token for our session cookie.
  * Returns true if a redirect was processed and a session established, false otherwise.
  */
-export async function handleSignInRedirect(): Promise<boolean> {
-  const credential = await getRedirectResult(auth());
-  if (!credential) return false;
+export function handleSignInRedirect(): Promise<boolean> {
+  if (!redirectPromise) {
+    redirectPromise = (async () => {
+      try {
+        const credential = await getRedirectResult(auth());
+        if (!credential) return false;
 
-  const idToken = await credential.user.getIdToken();
-  const response = await fetch("/api/auth/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
-  });
+        const idToken = await credential.user.getIdToken();
+        const response = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken }),
+        });
 
-  if (!response.ok) {
-    await firebaseSignOut(auth());
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body?.error ?? "Could not establish a session.");
+        if (!response.ok) {
+          await firebaseSignOut(auth());
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body?.error ?? "Could not establish a session.");
+        }
+
+        return true;
+      } catch (error) {
+        // Reset so it can be retried if it was a transient error, though typically
+        // redirect results are one-shot.
+        redirectPromise = null;
+        throw error;
+      }
+    })();
   }
-
-  return true;
+  return redirectPromise;
 }
 
 export async function signOut(): Promise<void> {
