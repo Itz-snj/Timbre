@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FirebaseError } from "firebase/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { signInWithGoogle } from "@/lib/firebase/client";
+import {
+  signInWithGoogle,
+  signInWithGoogleRedirect,
+  handleSignInRedirect,
+} from "@/lib/firebase/client";
 
 function GoogleMark() {
   return (
@@ -51,6 +55,35 @@ export function SignInButton({
   const next = searchParams.get("next");
   const destination = next?.startsWith("/app") ? next : "/app";
 
+  const isHandlingRedirect = useRef(false);
+
+  useEffect(() => {
+    // Only try to handle redirect result once on mount
+    if (isHandlingRedirect.current) return;
+    isHandlingRedirect.current = true;
+
+    async function checkRedirect() {
+      try {
+        const success = await handleSignInRedirect();
+        if (success) {
+          setIsSigningIn(true);
+          startTransition(() => {
+            router.push(destination);
+            router.refresh();
+          });
+        }
+      } catch (error: unknown) {
+        toast.error("Sign-in failed", {
+          description:
+            error instanceof Error
+              ? error.message
+              : "Could not complete sign-in.",
+        });
+      }
+    }
+    checkRedirect();
+  }, [destination, router]);
+
   const busy = isSigningIn || isPending;
 
   async function handleSignIn() {
@@ -71,6 +104,18 @@ export function SignInButton({
           error.code === "auth/cancelled-popup-request")
       ) {
         return;
+      }
+
+      // If the browser strictly blocked the popup, fall back to redirect.
+      if (error instanceof FirebaseError && error.code === "auth/popup-blocked") {
+        toast.info("Popup blocked. Redirecting to Google...");
+        try {
+          await signInWithGoogleRedirect();
+          return; // The page will navigate away
+        } catch (redirectError) {
+          // If even the redirect fails to launch, fall through to the generic error.
+          error = redirectError;
+        }
       }
 
       toast.error("Sign-in failed", {

@@ -5,6 +5,8 @@ import {
   GoogleAuthProvider,
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   type Auth,
 } from "firebase/auth";
@@ -48,6 +50,40 @@ export async function signInWithGoogle(): Promise<void> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body?.error ?? "Could not establish a session.");
   }
+}
+
+/**
+ * Triggers a redirect sign-in. The browser will navigate away to Google.
+ */
+export async function signInWithGoogleRedirect(): Promise<void> {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  await signInWithRedirect(auth(), provider);
+}
+
+/**
+ * Call this on mount to catch the credential after returning from a redirect.
+ * It completes the sign-in by trading the token for our session cookie.
+ * Returns true if a redirect was processed and a session established, false otherwise.
+ */
+export async function handleSignInRedirect(): Promise<boolean> {
+  const credential = await getRedirectResult(auth());
+  if (!credential) return false;
+
+  const idToken = await credential.user.getIdToken();
+  const response = await fetch("/api/auth/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+
+  if (!response.ok) {
+    await firebaseSignOut(auth());
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.error ?? "Could not establish a session.");
+  }
+
+  return true;
 }
 
 export async function signOut(): Promise<void> {
