@@ -10,12 +10,9 @@ import {
 import {
   GoogleAuthProvider,
   getAuth,
-  getRedirectResult,
   signInWithPopup,
-  signInWithRedirect,
   signOut as firebaseSignOut,
   type Auth,
-  type User,
 } from "firebase/auth";
 import { requireFirebaseClientConfig } from "@/lib/env";
 
@@ -28,36 +25,55 @@ export function auth(): Auth {
   return getAuth(app());
 }
 
-function googleProvider(): GoogleAuthProvider {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: "select_account" });
-  return provider;
+/**
+ * The browser refused to open (or immediately closed) the sign-in popup. Thrown
+ * as its own type so the UI can give an actionable "allow pop-ups" message
+ * instead of a generic failure.
+ *
+ * We deliberately do NOT fall back to `signInWithRedirect` here: on Chrome the
+ * redirect flow's `getRedirectResult` has to read its pending state out of
+ * third-party storage, which Chrome's storage partitioning blocks — so the
+ * redirect returns and silently does nothing. The popup completes the OAuth
+ * inside the popup window and returns the credential via postMessage, never
+ * touching partitioned storage, which is why it's the reliable path.
+ */
+export class PopupBlockedError extends Error {
+  constructor() {
+    super("The browser blocked the sign-in popup.");
+    this.name = "PopupBlockedError";
+  }
 }
 
-// Firebase codes that mean "the popup path isn't available here" — Chrome
-// refused the popup, or the browser's storage partitioning won't let the
-// cross-origin auth handler run. These are the cases where we retry via a
-// full-page redirect. User cancellations (popup-closed-by-user,
-// cancelled-popup-request) are deliberately NOT here — those should surface as
-// normal cancellations, not trigger a redirect.
-const POPUP_UNAVAILABLE = new Set([
+const POPUP_BLOCKED_CODES = new Set([
   "auth/popup-blocked",
   "auth/operation-not-supported-in-this-environment",
   "auth/web-storage-unsupported",
 ]);
 
-// Survives the round trip to Google in the same tab (sessionStorage persists
-// across same-origin navigations). Lets us know, on return, that we should look
-// for a redirect result — and lets exactly one mounted SignInButton claim it.
-const REDIRECT_MARKER = "timbre:auth-redirect";
-
 /**
- * Trade a signed-in Firebase user for the httpOnly session cookie the server
- * actually trusts. See ai_rules.md §6 — the client ID token only lives in the
- * browser, so `proxy.ts` and the API routes rely on this cookie instead.
+ * Full sign-in round trip.
+ *
+ * Firebase's client SDK gives us an ID token, but that token only lives in the
+ * browser and lasts an hour. The server can't see it on a normal navigation, so
+ * we immediately trade it for an httpOnly session cookie (see
+ * `/api/auth/session`) — that cookie is what `proxy.ts` and the API routes
+ * actually trust. See ai_rules.md §6.
  */
-async function establishSession(user: User): Promise<void> {
-  const idToken = await user.getIdToken();
+export async function signInWithGoogle(): Promise<void> {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+
+  let credential;
+  try {
+    credential = await signInWithPopup(auth(), provider);
+  } catch (error) {
+    if (error instanceof FirebaseError && POPUP_BLOCKED_CODES.has(error.code)) {
+      throw new PopupBlockedError();
+    }
+    throw error;
+  }
+
+  const idToken = await credential.user.getIdToken();
 
   const response = await fetch("/api/auth/session", {
     method: "POST",
@@ -72,61 +88,6 @@ async function establishSession(user: User): Promise<void> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body?.error ?? "Could not establish a session.");
   }
-}
-
-/**
- * Start Google sign-in.
- *
- * Prefers a popup (no full-page navigation, better UX). If Chrome blocks the
- * popup — or the browser's third-party storage rules break the cross-origin
- * auth handler, which is the common failure in production even when popups are
- * allowed in settings — we fall back to `signInWithRedirect`, which has neither
- * constraint.
- *
- * Returns `true` when sign-in completed in-page (popup). Returns `false` when we
- * handed off to a redirect: the browser is navigating away, and completion
- * happens on return via {@link completeRedirectSignIn}.
- */
-export async function signInWithGoogle(): Promise<boolean> {
-  try {
-    const credential = await signInWithPopup(auth(), googleProvider());
-    await establishSession(credential.user);
-    return true;
-  } catch (error) {
-    if (error instanceof FirebaseError && POPUP_UNAVAILABLE.has(error.code)) {
-      sessionStorage.setItem(REDIRECT_MARKER, "1");
-      await signInWithRedirect(auth(), googleProvider());
-      return false; // browser is navigating away now
-    }
-    throw error;
-  }
-}
-
-/** True if this page load is the return leg of a redirect sign-in. */
-export function isAwaitingRedirect(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.sessionStorage.getItem(REDIRECT_MARKER) === "1"
-  );
-}
-
-/**
- * Finish a redirect-based sign-in. Safe to call on every load: it no-ops unless
- * we actually left via a redirect. The marker is cleared before we await so
- * that, with several SignInButtons mounted, only the first caller claims the
- * result.
- *
- * Returns `true` when a redirect sign-in completed and the session cookie is set.
- */
-export async function completeRedirectSignIn(): Promise<boolean> {
-  if (!isAwaitingRedirect()) return false;
-  sessionStorage.removeItem(REDIRECT_MARKER);
-
-  const result = await getRedirectResult(auth());
-  if (!result) return false;
-
-  await establishSession(result.user);
-  return true;
 }
 
 export async function signOut(): Promise<void> {

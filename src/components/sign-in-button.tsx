@@ -1,16 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FirebaseError } from "firebase/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  completeRedirectSignIn,
-  isAwaitingRedirect,
-  signInWithGoogle,
-} from "@/lib/firebase/client";
+import { PopupBlockedError, signInWithGoogle } from "@/lib/firebase/client";
 
 function GoogleMark() {
   return (
@@ -57,61 +53,15 @@ export function SignInButton({
 
   const busy = isSigningIn || isPending;
 
-  function finishSignIn() {
-    // The session cookie exists now, so proxy.ts will let this through.
-    startTransition(() => {
-      router.push(destination);
-      router.refresh();
-    });
-  }
-
-  // When the popup path isn't available, signInWithGoogle() falls back to a
-  // full-page redirect to Google. On the return leg we land back here and have
-  // to finish the session exchange. Several SignInButtons may be mounted; the
-  // sessionStorage marker inside completeRedirectSignIn() ensures only the first
-  // one claims the result.
-  useEffect(() => {
-    if (!isAwaitingRedirect()) return;
-
-    let active = true;
-    // Reflect the in-flight redirect completion. This runs once, only on the
-    // return leg of a redirect sign-in, so the extra render is inconsequential.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsSigningIn(true);
-    completeRedirectSignIn()
-      .then((completed) => {
-        if (active && completed) finishSignIn();
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        toast.error("Sign-in failed", {
-          description:
-            error instanceof Error
-              ? error.message
-              : "Something went wrong. Please try again.",
-        });
-      })
-      .finally(() => {
-        if (active) setIsSigningIn(false);
-      });
-
-    return () => {
-      active = false;
-    };
-    // Runs once on mount; destination/router are stable for this purpose.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   async function handleSignIn() {
     setIsSigningIn(true);
     try {
-      const completed = await signInWithGoogle();
-      if (completed) {
-        finishSignIn();
-      }
-      // Otherwise we fell back to a redirect — the browser is navigating away
-      // and completion happens on return (see the effect above). Keep the
-      // spinner up rather than flashing it off before the page unloads.
+      await signInWithGoogle();
+      // The session cookie exists now, so proxy.ts will let this through.
+      startTransition(() => {
+        router.push(destination);
+        router.refresh();
+      });
     } catch (error: unknown) {
       setIsSigningIn(false);
 
@@ -122,6 +72,21 @@ export function SignInButton({
         (error.code === "auth/popup-closed-by-user" ||
           error.code === "auth/cancelled-popup-request")
       ) {
+        return;
+      }
+
+      // The browser blocked the popup — tell the user exactly how to fix it,
+      // and keep the toast up long enough to act on.
+      if (error instanceof PopupBlockedError) {
+        toast.error("Pop-up blocked", {
+          description:
+            "Your browser blocked the sign-in window. Allow pop-ups for this site (look for the icon in the address bar), then try again.",
+          duration: 10000,
+          action: {
+            label: "Try again",
+            onClick: () => void handleSignIn(),
+          },
+        });
         return;
       }
 
