@@ -645,6 +645,18 @@ function VoicePin({
         <Mic className="size-4" />
       </button>
 
+      {/* Always-visible name tag so a crowd of pins stays identifiable without
+          opening each one. Ignores pointer events (drag/tap belong to the pin)
+          and steps aside when the popover — which shows the name itself — opens. */}
+      {!open ? (
+        <span
+          className="pointer-events-none absolute left-1/2 top-[calc(100%+5px)] block max-w-[8.5rem] -translate-x-1/2 truncate rounded-md bg-background/85 px-1.5 py-0.5 text-center text-[10px] font-medium text-foreground/80 shadow-sm ring-1 ring-border backdrop-blur-sm"
+          aria-hidden="true"
+        >
+          {name}
+        </span>
+      ) : null}
+
       {open ? (
         <div
           className="absolute left-1/2 top-[calc(100%+8px)] z-10 w-64 -translate-x-1/2 rounded-xl border bg-popover p-3 shadow-xl"
