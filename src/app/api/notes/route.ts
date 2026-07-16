@@ -10,6 +10,7 @@ import {
   defaultTitle,
   toNoteSummary,
 } from "@/lib/notes";
+import { accessFilter } from "@/lib/note-access";
 import type { NoteDoc } from "@/lib/models";
 
 // Reads the session cookie and queries Mongo per request — never prerender.
@@ -54,7 +55,7 @@ export async function GET() {
 
   const notes = await notesCollection();
   const docs = await notes
-    .find({ ownerId: user.firebaseUid })
+    .find(accessFilter(user.firebaseUid))
     .sort({ updatedAt: -1 })
     .toArray();
 
@@ -117,6 +118,8 @@ export async function POST(request: Request) {
     noteType: parsed.noteType,
     ownerId: user.firebaseUid,
     collaborators: [],
+    shareEnabled: false,
+    shareRole: "editor",
     isPublic: false,
     createdAt: now,
     updatedAt: now,

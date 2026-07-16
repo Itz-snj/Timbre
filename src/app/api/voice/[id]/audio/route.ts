@@ -3,6 +3,7 @@ import { get } from "@vercel/blob";
 import { currentUser, jsonError, notFound, unauthorized } from "@/lib/api";
 import { serverEnv } from "@/lib/env";
 import { notesCollection, voiceNotesCollection } from "@/lib/mongodb";
+import { accessFilter } from "@/lib/note-access";
 
 // Streams private audio per request — never prerender or cache at the edge.
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ export async function GET(
   const notes = await notesCollection();
   const note = await notes.findOne({
     _id: voiceNote.noteId,
-    ownerId: user.firebaseUid,
+    ...accessFilter(user.firebaseUid),
   });
   if (!note) return notFound("Voice note not found.");
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import {
   currentUser,
+  forbidden,
   jsonError,
   notFound,
   parseJsonBody,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/api";
 import { notesCollection } from "@/lib/mongodb";
 import { documentSaveSchema } from "@/lib/notes";
+import { checkWritable } from "@/lib/note-access";
 
 // Reads the session cookie and writes to Mongo per request — never prerender.
 export const dynamic = "force-dynamic";
@@ -77,22 +79,16 @@ export async function PUT(
   // `noteType: "document"` in the filter guards against ever landing document
   // content on a canvas note; on no-match, a second read tells 404 (no such
   // note) apart from 409 (wrong type).
-  const updated = await notes.findOneAndUpdate(
-    { _id, ownerId: user.firebaseUid, noteType: "document" },
-    {
-      $set: {
-        documentContent: parsed.content,
-        updatedAt: new Date(),
-      },
-    },
-    { returnDocument: "after" },
-  );
-
-  if (updated) {
-    return NextResponse.json({ updatedAt: updated.updatedAt.toISOString() });
+  const access = await checkWritable(notes, _id, user.firebaseUid);
+  if (!access.ok) return access.viewOnly ? forbidden() : notFound("Note not found.");
+  if (access.note.noteType !== "document") {
+    return jsonError("This note is not a document note.", 409);
   }
 
-  const exists = await notes.findOne({ _id, ownerId: user.firebaseUid });
-  if (!exists) return notFound("Note not found.");
-  return jsonError("This note is not a document note.", 409);
+  const now = new Date();
+  await notes.updateOne(
+    { _id },
+    { $set: { documentContent: parsed.content, updatedAt: now } },
+  );
+  return NextResponse.json({ updatedAt: now.toISOString() });
 }

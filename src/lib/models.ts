@@ -49,8 +49,16 @@ export interface NoteDoc {
    * ownership checks compare against `user.firebaseUid` with no extra lookup.
    */
   ownerId: string;
-  /** Shared-access list. Empty until Phase 6 wires collaboration; present now so the shape is stable. */
+  /** Shared-access list — populated when someone opens a share link and joins. */
   collaborators: Collaborator[];
+  /**
+   * When true, any signed-in user who opens this note's link joins as a
+   * collaborator with role `shareRole` ("anyone with the link can edit/view").
+   * Owner-controlled.
+   */
+  shareEnabled: boolean;
+  /** The role link-openers get while sharing is on. Defaults to editor. */
+  shareRole: CollaboratorRole;
 
   /**
    * Editor payloads, stored as the raw JSON each editor already produces
@@ -84,6 +92,8 @@ export interface VoiceNoteDoc {
   noteId: ObjectId;
   /** Firebase UID of whoever recorded it — the identity charged for the budget. */
   uploaderId: string;
+  /** Display name of the recorder, denormalized so shared notes can show "recorded by …". */
+  uploaderName: string | null;
   /** User-given name for the recording; `null` until named (UI shows "Recording N"). */
   title: string | null;
   /**

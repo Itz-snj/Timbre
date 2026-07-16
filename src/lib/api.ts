@@ -43,6 +43,12 @@ export function unauthorized(): NextResponse {
   return jsonError("Authentication required.", 401);
 }
 
+export function forbidden(
+  message = "You have view-only access to this note.",
+): NextResponse {
+  return jsonError(message, 403);
+}
+
 export function notFound(message = "Not found."): NextResponse {
   return jsonError(message, 404);
 }

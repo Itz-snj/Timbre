@@ -167,6 +167,8 @@ export async function POST(request: Request) {
       noteType: manifest.noteType,
       ownerId: user.firebaseUid,
       collaborators: [],
+      shareEnabled: false,
+      shareRole: "editor",
       isPublic: false,
       createdAt: now,
       updatedAt: now,
@@ -197,6 +199,7 @@ export async function POST(request: Request) {
       const vnDoc: VoiceNoteDoc = {
         noteId,
         uploaderId: user.firebaseUid,
+        uploaderName: user.name ?? null,
         title: item.entry.title,
         blobPathname: blob.pathname,
         blobUrl: blob.url,

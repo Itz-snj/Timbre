@@ -3,12 +3,14 @@ import { ObjectId } from "mongodb";
 import { del } from "@vercel/blob";
 import {
   currentUser,
+  forbidden,
   notFound,
   parseJsonBody,
   unauthorized,
 } from "@/lib/api";
 import { serverEnv } from "@/lib/env";
 import { notesCollection, voiceNotesCollection } from "@/lib/mongodb";
+import { checkWritable } from "@/lib/note-access";
 import { refundBudget } from "@/lib/voice-budget";
 import { voiceUpdateSchema } from "@/lib/voice";
 
@@ -75,11 +77,10 @@ export async function PATCH(
   if (!voiceNote) return notFound("Voice note not found.");
 
   const notes = await notesCollection();
-  const note = await notes.findOne({
-    _id: voiceNote.noteId,
-    ownerId: user.firebaseUid,
-  });
-  if (!note) return notFound("Voice note not found.");
+  const access = await checkWritable(notes, voiceNote.noteId, user.firebaseUid);
+  if (!access.ok) {
+    return access.viewOnly ? forbidden() : notFound("Voice note not found.");
+  }
 
   // Only set the fields that were actually sent; an empty title clears the name.
   const update: Record<string, unknown> = {};
@@ -132,11 +133,10 @@ export async function DELETE(
   // Authorize through the parent note: only the note's owner may delete its
   // recordings. Same 404 whether the note is missing or owned by someone else.
   const notes = await notesCollection();
-  const note = await notes.findOne({
-    _id: voiceNote.noteId,
-    ownerId: user.firebaseUid,
-  });
-  if (!note) return notFound("Voice note not found.");
+  const access = await checkWritable(notes, voiceNote.noteId, user.firebaseUid);
+  if (!access.ok) {
+    return access.viewOnly ? forbidden() : notFound("Voice note not found.");
+  }
 
   // Remove the Mongo record first so it leaves the UI immediately; a concurrent
   // delete that already won returns 404.

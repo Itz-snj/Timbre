@@ -16,6 +16,7 @@ import {
   Check,
   CircleAlert,
   Code,
+  Eye,
   Heading1,
   Heading2,
   Italic,
@@ -28,28 +29,52 @@ import {
 import { cn } from "@/lib/utils";
 import type { VoiceNoteSummary } from "@/lib/voice";
 import { VoiceBlock } from "@/components/notes/voice-block-extension";
+import type { NoteCollab } from "@/components/notes/use-note-collab";
+import { PresenceStack } from "@/components/notes/presence-stack";
+import { ShareButton } from "@/components/notes/share-button";
 
 type SaveState = "saved" | "unsaved" | "saving" | "error";
 
 /** The debounce window after the last edit before we persist. */
 const AUTOSAVE_DELAY_MS = 800;
+/** Slower than autosave: each remote apply resets the cursor (LWW tradeoff),
+ *  so we broadcast document changes less often to keep that jank rare. */
+const COLLAB_DELAY_MS = 400;
 
 export function DocumentEditor({
   noteId,
   title,
   initialContent,
+  voiceNotes,
   onVoiceChanged,
   registerInsertVoiceBlock,
+  collab,
+  isOwner,
+  canEdit,
+  isShared,
+  shareEnabled,
+  shareRole,
 }: {
   noteId: string;
   title: string;
   initialContent: Record<string, unknown> | null;
+  voiceNotes: VoiceNoteSummary[];
   onVoiceChanged: () => Promise<void>;
   registerInsertVoiceBlock: (
     fn: ((vn: VoiceNoteSummary) => void) | null,
   ) => void;
+  collab: NoteCollab;
+  isOwner: boolean;
+  canEdit: boolean;
+  isShared: boolean;
+  shareEnabled: boolean;
+  shareRole: "editor" | "viewer";
 }) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  // True while applying a remote change, so the resulting onUpdate doesn't echo
+  // it back out or re-save it.
+  const applyingRemote = useRef(false);
+  const emitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // `onVoiceChanged` is the workspace's `refresh` (a stable useCallback), so the
   // editor — created once — safely captures this; no ref indirection needed.
@@ -93,11 +118,24 @@ export function DocumentEditor({
     }, AUTOSAVE_DELAY_MS);
   }, [save]);
 
+  // Throttle document broadcasts; always send the latest doc JSON.
+  const scheduleEmit = useCallback(() => {
+    if (!collab.enabled || emitTimer.current) return;
+    emitTimer.current = setTimeout(() => {
+      emitTimer.current = null;
+      collab.emitContent({ content: latest.current });
+    }, COLLAB_DELAY_MS);
+  }, [collab]);
+
   const editor = useEditor({
-    extensions: [StarterKit, VoiceBlock.configure({ onDeleted: onVoiceDeleted })],
+    extensions: [
+      StarterKit,
+      VoiceBlock.configure({ onDeleted: onVoiceDeleted, canEdit }),
+    ],
     // Tiptap must not render during SSR or it hydration-mismatches — this whole
     // component is client-side, but Next still server-renders client components.
     immediatelyRender: false,
+    editable: canEdit,
     content: (initialContent as unknown as JSONContent | null) ?? "",
     editorProps: {
       attributes: {
@@ -107,11 +145,34 @@ export function DocumentEditor({
     },
     onUpdate: ({ editor }) => {
       latest.current = editor.getJSON();
+      if (applyingRemote.current) return; // remote-applied → don't echo or re-save
       dirty.current = true;
       setSaveState("unsaved");
       scheduleSave();
+      scheduleEmit();
     },
   });
+
+  // Apply remote document changes. setContent resets the selection, so we
+  // capture and restore the cursor to soften the jump (last-write-wins; a CRDT
+  // like Yjs is the production answer — see README).
+  useEffect(() => {
+    if (!editor || !collab.enabled) return;
+    collab.setContentHandler((data) => {
+      const content = (data as { content?: unknown }).content;
+      if (!content) return;
+      const { from, to } = editor.state.selection;
+      applyingRemote.current = true;
+      editor.commands.setContent(content as JSONContent);
+      const size = editor.state.doc.content.size;
+      editor.commands.setTextSelection({
+        from: Math.min(from, size),
+        to: Math.min(to, size),
+      });
+      applyingRemote.current = false;
+    });
+    return () => collab.setContentHandler(null);
+  }, [editor, collab]);
 
   // Leaving with a pending debounce would drop the last <800ms of edits. Flush
   // best-effort on unmount + tab-hide with a keepalive request.
@@ -133,6 +194,7 @@ export function DocumentEditor({
     return () => {
       document.removeEventListener("visibilitychange", onHide);
       if (timer.current) clearTimeout(timer.current);
+      if (emitTimer.current) clearTimeout(emitTimer.current);
       flush();
     };
   }, [flush]);
@@ -157,6 +219,39 @@ export function DocumentEditor({
     return () => registerInsertVoiceBlock(null);
   }, [editor, registerInsertVoiceBlock]);
 
+  // A voice block only stores the recording's id, so its label and "recorded by"
+  // are synced from the live list here — that's why a rename in the sidebar now
+  // shows up in the block. Flagged as a remote-style change so it doesn't echo
+  // over collab or trigger a save.
+  useEffect(() => {
+    if (!editor) return;
+    const byId = new Map(voiceNotes.map((v) => [v.id, v]));
+    let tr = editor.state.tr;
+    let changed = false;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name !== "voiceNote") return;
+      const vn = byId.get(node.attrs.voiceNoteId as string);
+      const nextTitle = vn?.title ?? null;
+      const nextUploader = isShared ? (vn?.uploaderName ?? null) : null;
+      if (
+        node.attrs.title !== nextTitle ||
+        node.attrs.uploaderName !== nextUploader
+      ) {
+        tr = tr.setNodeMarkup(pos, undefined, {
+          ...node.attrs,
+          title: nextTitle,
+          uploaderName: nextUploader,
+        });
+        changed = true;
+      }
+    });
+    if (changed) {
+      applyingRemote.current = true;
+      editor.view.dispatch(tr);
+      applyingRemote.current = false;
+    }
+  }, [editor, voiceNotes, isShared]);
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b bg-background px-3">
@@ -172,10 +267,24 @@ export function DocumentEditor({
             {title}
           </h1>
         </div>
-        <SaveIndicator state={saveState} onRetry={() => void save()} />
+        <div className="flex items-center gap-3">
+          <PresenceStack peers={collab.peers} />
+          {isOwner ? (
+            <ShareButton
+              noteId={noteId}
+              initialShareEnabled={shareEnabled}
+              initialShareRole={shareRole}
+            />
+          ) : null}
+          {canEdit ? (
+            <SaveIndicator state={saveState} onRetry={() => void save()} />
+          ) : (
+            <ViewOnlyBadge />
+          )}
+        </div>
       </header>
 
-      {editor ? <Toolbar editor={editor} /> : null}
+      {editor && canEdit ? <Toolbar editor={editor} /> : null}
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl">
@@ -316,6 +425,15 @@ function ToolbarButton({
 
 function Divider() {
   return <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />;
+}
+
+function ViewOnlyBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+      <Eye className="size-3.5" />
+      View only
+    </span>
+  );
 }
 
 function SaveIndicator({

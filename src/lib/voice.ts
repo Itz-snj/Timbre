@@ -96,6 +96,7 @@ export interface VoiceNoteSummary {
   id: string;
   noteId: string;
   uploaderId: string;
+  uploaderName: string | null;
   title: string | null;
   /**
    * Where the client plays the audio from — our own authenticated proxy, not
@@ -118,6 +119,7 @@ export function toVoiceNoteSummary(doc: VoiceNoteDoc): VoiceNoteSummary {
     id,
     noteId: doc.noteId.toString(),
     uploaderId: doc.uploaderId,
+    uploaderName: doc.uploaderName ?? null,
     title: doc.title ?? null,
     audioUrl: `/api/voice/${id}/audio`,
     transcript: doc.transcript,

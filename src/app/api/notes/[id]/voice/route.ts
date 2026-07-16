@@ -4,6 +4,7 @@ import { put } from "@vercel/blob";
 import { parseBuffer } from "music-metadata";
 import {
   currentUser,
+  forbidden,
   jsonError,
   notFound,
   unauthorized,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/api";
 import { serverEnv } from "@/lib/env";
 import { notesCollection, voiceNotesCollection } from "@/lib/mongodb";
+import { accessFilter, checkWritable } from "@/lib/note-access";
 import { VOICE_BUDGET_SECONDS, type VoiceNoteDoc } from "@/lib/models";
 import { reserveBudget, refundBudget } from "@/lib/voice-budget";
 import {
@@ -59,7 +61,7 @@ export async function GET(
   const noteId = new ObjectId(id);
 
   const notes = await notesCollection();
-  const note = await notes.findOne({ _id: noteId, ownerId: user.firebaseUid });
+  const note = await notes.findOne({ _id: noteId, ...accessFilter(user.firebaseUid) });
   if (!note) return notFound("Note not found.");
 
   const voiceNotes = await voiceNotesCollection();
@@ -142,8 +144,8 @@ export async function POST(
   const noteId = new ObjectId(id);
 
   const notes = await notesCollection();
-  const note = await notes.findOne({ _id: noteId, ownerId: user.firebaseUid });
-  if (!note) return notFound("Note not found.");
+  const access = await checkWritable(notes, noteId, user.firebaseUid);
+  if (!access.ok) return access.viewOnly ? forbidden() : notFound("Note not found.");
 
   const token = serverEnv().BLOB_READ_WRITE_TOKEN;
   if (!token) {
@@ -233,6 +235,7 @@ export async function POST(
   const doc: VoiceNoteDoc = {
     noteId,
     uploaderId: user.firebaseUid,
+    uploaderName: user.name ?? null,
     title: null,
     blobPathname,
     blobUrl,

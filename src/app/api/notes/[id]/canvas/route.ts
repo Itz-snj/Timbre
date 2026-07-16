@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import {
   currentUser,
+  forbidden,
   jsonError,
   notFound,
   parseJsonBody,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/api";
 import { notesCollection } from "@/lib/mongodb";
 import { canvasSaveSchema } from "@/lib/notes";
+import { checkWritable } from "@/lib/note-access";
 
 // Reads the session cookie and writes to Mongo per request — never prerender.
 export const dynamic = "force-dynamic";
@@ -79,27 +81,22 @@ export async function PUT(
   const _id = new ObjectId(id);
 
   const notes = await notesCollection();
-  // The `noteType: "canvas"` in the filter is a guard, not an optimisation: it
-  // means the $set can never land canvas fields on a document note. When it
-  // matches nothing we do a second read purely to tell 404 (no such note) apart
-  // from 409 (wrong type) for a useful error.
-  const updated = await notes.findOneAndUpdate(
-    { _id, ownerId: user.firebaseUid, noteType: "canvas" },
+  const access = await checkWritable(notes, _id, user.firebaseUid);
+  if (!access.ok) return access.viewOnly ? forbidden() : notFound("Note not found.");
+  if (access.note.noteType !== "canvas") {
+    return jsonError("This note is not a canvas note.", 409);
+  }
+
+  const now = new Date();
+  await notes.updateOne(
+    { _id },
     {
       $set: {
         canvasElements: parsed.elements,
         canvasAppState: parsed.appState,
-        updatedAt: new Date(),
+        updatedAt: now,
       },
     },
-    { returnDocument: "after" },
   );
-
-  if (updated) {
-    return NextResponse.json({ updatedAt: updated.updatedAt.toISOString() });
-  }
-
-  const exists = await notes.findOne({ _id, ownerId: user.firebaseUid });
-  if (!exists) return notFound("Note not found.");
-  return jsonError("This note is not a canvas note.", 409);
+  return NextResponse.json({ updatedAt: now.toISOString() });
 }

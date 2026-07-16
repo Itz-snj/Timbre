@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, Check, CircleAlert, Loader2, Mic, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  CircleAlert,
+  Eye,
+  Loader2,
+  Mic,
+  Trash2,
+  X,
+} from "lucide-react";
 import "@excalidraw/excalidraw/index.css";
 import { cn } from "@/lib/utils";
 import { voiceDisplayName, type VoiceNoteSummary } from "@/lib/voice";
@@ -12,6 +21,12 @@ import {
   fmt,
   type RecPosition,
 } from "@/components/notes/voice-shared";
+import type {
+  NoteCollab,
+  RemoteCursor,
+} from "@/components/notes/use-note-collab";
+import { PresenceStack } from "@/components/notes/presence-stack";
+import { ShareButton } from "@/components/notes/share-button";
 
 /**
  * excalidraw is a browser-only canvas (it touches `window`/`document` at import
@@ -35,8 +50,13 @@ type ExcalidrawProps = React.ComponentProps<typeof Excalidraw>;
 type OnChange = NonNullable<ExcalidrawProps["onChange"]>;
 type ChangeElements = Parameters<OnChange>[0];
 type ChangeAppState = Parameters<OnChange>[1];
+type ExcalidrawAPI = Parameters<NonNullable<ExcalidrawProps["excalidrawAPI"]>>[0];
 
 type SaveState = "saved" | "unsaved" | "saving" | "error";
+
+/** How often (ms) to broadcast the scene / cursor while actively editing. */
+const COLLAB_CONTENT_MS = 200;
+const COLLAB_CURSOR_MS = 60;
 
 /** The debounce window after the last edit before we persist. */
 const AUTOSAVE_DELAY_MS = 800;
@@ -119,6 +139,11 @@ export function CanvasEditor({
   voiceNotes,
   onVoiceChanged,
   registerGetPinPosition,
+  collab,
+  isOwner,
+  canEdit,
+  shareEnabled,
+  shareRole,
 }: {
   noteId: string;
   title: string;
@@ -127,12 +152,25 @@ export function CanvasEditor({
   voiceNotes: VoiceNoteSummary[];
   onVoiceChanged: () => Promise<void>;
   registerGetPinPosition: (fn: (() => RecPosition | null) | null) => void;
+  collab: NoteCollab;
+  isOwner: boolean;
+  canEdit: boolean;
+  shareEnabled: boolean;
+  shareRole: "editor" | "viewer";
 }) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   // Pins re-position on every pan/zoom, so the view transform is React state.
   const [view, setView] = useState<ViewTransform>(() => readView(initialAppState));
   // The canvas area, used to measure viewport centre when dropping a new pin.
   const canvasAreaRef = useRef<HTMLDivElement>(null);
+
+  // Live collaboration: excalidraw's imperative API applies remote scenes;
+  // remote cursors render in an overlay. Only elements are synced (each user
+  // keeps their own viewport). Broadcast is last-write-wins — see README.
+  const apiRef = useRef<ExcalidrawAPI | null>(null);
+  const emitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCursorEmit = useRef(0);
+  const [cursors, setCursors] = useState<Record<string, RemoteCursor>>({});
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Data from Mongo is opaque JSON; cast through `unknown` into excalidraw's
@@ -181,6 +219,18 @@ export function CanvasEditor({
     }, AUTOSAVE_DELAY_MS);
   }, [save]);
 
+  // Throttle scene broadcasts so a burst of edits sends at most one every
+  // COLLAB_CONTENT_MS, always the latest.
+  const scheduleEmit = useCallback(() => {
+    if (!collab.enabled || emitTimer.current) return;
+    emitTimer.current = setTimeout(() => {
+      emitTimer.current = null;
+      collab.emitContent({
+        elements: liveElements(latest.current.elements),
+      });
+    }, COLLAB_CONTENT_MS);
+  }, [collab]);
+
   const handleChange = useCallback<OnChange>(
     (elements, appState) => {
       latest.current = { elements, appState };
@@ -196,11 +246,15 @@ export function CanvasEditor({
           : next,
       );
 
+      // A remote scene we just applied lands here too, but its signature already
+      // equals savedSig (set below in the handler), so it's a no-op — no echo,
+      // no redundant save.
       if (sceneSignature(elements) === savedSig.current) return; // no real change
       setSaveState("unsaved");
       scheduleSave();
+      scheduleEmit();
     },
-    [scheduleSave],
+    [scheduleSave, scheduleEmit],
   );
 
   // Tell the workspace where a new pin should land: the centre of what's
@@ -218,6 +272,49 @@ export function CanvasEditor({
     });
     return () => registerGetPinPosition(null);
   }, [registerGetPinPosition]);
+
+  // Apply remote scenes + track remote cursors.
+  useEffect(() => {
+    if (!collab.enabled) return;
+    collab.setContentHandler((data) => {
+      const els = (data as { elements?: unknown[] }).elements;
+      const api = apiRef.current;
+      if (!api || !Array.isArray(els)) return;
+      // Pre-set savedSig to the incoming scene so the onChange this triggers is
+      // recognised as "no change" — no echo back out, no redundant save.
+      savedSig.current = sceneSignature(els as unknown as ChangeElements);
+      (api.updateScene as (scene: { elements: unknown[] }) => void)({
+        elements: els,
+      });
+    });
+    collab.setCursorHandler((cursor) => {
+      setCursors((prev) => ({ ...prev, [cursor.id]: cursor }));
+    });
+    return () => {
+      collab.setContentHandler(null);
+      collab.setCursorHandler(null);
+    };
+  }, [collab]);
+
+  // Broadcast this user's pointer in scene coords (throttled), so it maps onto
+  // everyone else's canvas regardless of their own pan/zoom.
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!collab.enabled) return;
+      const now = Date.now();
+      if (now - lastCursorEmit.current < COLLAB_CURSOR_MS) return;
+      lastCursorEmit.current = now;
+      const el = canvasAreaRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const { scrollX, scrollY, zoom } = readView(latest.current.appState);
+      collab.emitCursor(
+        (e.clientX - rect.left) / zoom - scrollX,
+        (e.clientY - rect.top) / zoom - scrollY,
+      );
+    },
+    [collab],
+  );
 
   // Leaving the editor with a pending debounce would drop the last <800ms of
   // edits. Flush best-effort on unmount with a keepalive request that survives
@@ -243,6 +340,7 @@ export function CanvasEditor({
     return () => {
       document.removeEventListener("visibilitychange", onHide);
       if (timer.current) clearTimeout(timer.current);
+      if (emitTimer.current) clearTimeout(emitTimer.current);
       flush();
     };
   }, [flush]);
@@ -262,11 +360,33 @@ export function CanvasEditor({
             {title}
           </h1>
         </div>
-        <SaveIndicator state={saveState} onRetry={() => void save()} />
+        <div className="flex items-center gap-3">
+          <PresenceStack peers={collab.peers} />
+          {isOwner ? (
+            <ShareButton
+              noteId={noteId}
+              initialShareEnabled={shareEnabled}
+              initialShareRole={shareRole}
+            />
+          ) : null}
+          {canEdit ? (
+            <SaveIndicator state={saveState} onRetry={() => void save()} />
+          ) : (
+            <ViewOnlyBadge />
+          )}
+        </div>
       </header>
 
-      <div ref={canvasAreaRef} className="relative flex-1">
+      <div
+        ref={canvasAreaRef}
+        className="relative flex-1"
+        onPointerMove={handlePointerMove}
+      >
         <Excalidraw
+          excalidrawAPI={(api) => {
+            apiRef.current = api;
+          }}
+          viewModeEnabled={!canEdit}
           initialData={
             {
               elements: initialElements,
@@ -280,9 +400,61 @@ export function CanvasEditor({
         <PinsOverlay
           voiceNotes={voiceNotes}
           view={view}
+          canEdit={canEdit}
           onChanged={onVoiceChanged}
         />
+
+        <CursorsOverlay cursors={cursors} peers={collab.peers} view={view} />
       </div>
+    </div>
+  );
+}
+
+/** Remote collaborators' live pointers, mapped from scene coords to the canvas. */
+function CursorsOverlay({
+  cursors,
+  peers,
+  view,
+}: {
+  cursors: Record<string, RemoteCursor>;
+  peers: { id: string }[];
+  view: ViewTransform;
+}) {
+  const active = new Set(peers.map((p) => p.id));
+  const visible = Object.values(cursors).filter((c) => active.has(c.id));
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
+      {visible.map((cursor) => {
+        const left = (cursor.x + view.scrollX) * view.zoom;
+        const top = (cursor.y + view.scrollY) * view.zoom;
+        return (
+          <div
+            key={cursor.id}
+            className="absolute flex items-start gap-1"
+            style={{ left, top }}
+          >
+            <svg
+              viewBox="0 0 16 16"
+              className="size-4 shrink-0 drop-shadow"
+              style={{ color: cursor.user.color }}
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M1 1l5.5 14 2.2-5.8L14.5 7z"
+              />
+            </svg>
+            <span
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+              style={{ backgroundColor: cursor.user.color }}
+            >
+              {cursor.user.name}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -296,10 +468,12 @@ export function CanvasEditor({
 function PinsOverlay({
   voiceNotes,
   view,
+  canEdit,
   onChanged,
 }: {
   voiceNotes: VoiceNoteSummary[];
   view: ViewTransform;
+  canEdit: boolean;
   onChanged: () => Promise<void>;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -352,6 +526,7 @@ function PinsOverlay({
             left={left}
             top={top}
             view={view}
+            canEdit={canEdit}
             open={openId === vn.id}
             onToggle={() => setOpenId((cur) => (cur === vn.id ? null : vn.id))}
             onMoved={moveVoiceNote}
@@ -369,6 +544,7 @@ function VoicePin({
   left,
   top,
   view,
+  canEdit,
   open,
   onToggle,
   onMoved,
@@ -379,6 +555,7 @@ function VoicePin({
   left: number;
   top: number;
   view: ViewTransform;
+  canEdit: boolean;
   open: boolean;
   onToggle: () => void;
   onMoved: (id: string, position: RecPosition) => Promise<boolean>;
@@ -413,10 +590,10 @@ function VoicePin({
     dragRef.current = null;
     if (!d) return;
 
-    if (!d.moved) {
-      // A tap, not a drag — open/close the player.
+    if (!d.moved || !canEdit) {
+      // A tap (or a viewer who can't move it) — just open/close the player.
       setOffset({ dx: 0, dy: 0 });
-      onToggle();
+      if (!d.moved) onToggle();
       return;
     }
 
@@ -457,10 +634,11 @@ function VoicePin({
             onToggle();
           }
         }}
-        aria-label={`${name}, ${fmt(voiceNote.durationSec)}. Drag to move, click to play.`}
+        aria-label={`${name}, ${fmt(voiceNote.durationSec)}.${canEdit ? " Drag to move, click to play." : " Click to play."}`}
         aria-expanded={open}
         className={cn(
-          "flex size-9 cursor-grab touch-none items-center justify-center rounded-full border-2 border-background bg-brand text-brand-foreground shadow-md transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing",
+          "flex size-9 touch-none items-center justify-center rounded-full border-2 border-background bg-brand text-brand-foreground shadow-md transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+          canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
           open && "scale-110 ring-2 ring-ring",
         )}
       >
@@ -490,28 +668,44 @@ function VoicePin({
               <X className="size-3.5" />
             </button>
           </div>
+          {voiceNote.uploaderName ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Recorded by {voiceNote.uploaderName}
+            </p>
+          ) : null}
           <audio
             controls
             preload="metadata"
             src={voiceNote.audioUrl}
             className="mt-2 h-9 w-full"
           />
-          <button
-            type="button"
-            disabled={deleting}
-            onClick={async () => {
-              setDeleting(true);
-              await deleteVoiceNote(voiceNote.id);
-              await onChanged();
-            }}
-            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
-          >
-            <Trash2 className="size-3.5" />
-            {deleting ? "Deleting…" : "Delete"}
-          </button>
+          {canEdit ? (
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={async () => {
+                setDeleting(true);
+                await deleteVoiceNote(voiceNote.id);
+                await onChanged();
+              }}
+              className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+            >
+              <Trash2 className="size-3.5" />
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ViewOnlyBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+      <Eye className="size-3.5" />
+      View only
+    </span>
   );
 }
 

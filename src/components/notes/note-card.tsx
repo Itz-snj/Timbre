@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Download,
+  Eye,
   FileText,
   MoreHorizontal,
   Pencil,
@@ -76,7 +77,15 @@ const TYPE_META = {
   },
 } as const;
 
-export function NoteCard({ note }: { note: NoteSummary }) {
+export function NoteCard({
+  note,
+  owned = true,
+  viewOnly = false,
+}: {
+  note: NoteSummary;
+  owned?: boolean;
+  viewOnly?: boolean;
+}) {
   const router = useRouter();
   const meta = TYPE_META[note.noteType];
 
@@ -143,15 +152,26 @@ export function NoteCard({ note }: { note: NoteSummary }) {
         />
 
         <div className="pointer-events-none relative z-10 flex items-start justify-between gap-2">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-              meta.badge,
-            )}
-          >
-            <meta.Icon className="size-3.5" aria-hidden="true" />
-            {meta.label}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                meta.badge,
+              )}
+            >
+              <meta.Icon className="size-3.5" aria-hidden="true" />
+              {meta.label}
+            </span>
+            {viewOnly ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
+                title="View-only access"
+              >
+                <Eye className="size-3.5" aria-hidden="true" />
+                View
+              </span>
+            ) : null}
+          </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -165,15 +185,17 @@ export function NoteCard({ note }: { note: NoteSummary }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem
-                onSelect={() => {
-                  setTitle(note.title);
-                  setRenameOpen(true);
-                }}
-              >
-                <Pencil />
-                Rename
-              </DropdownMenuItem>
+              {!viewOnly ? (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setTitle(note.title);
+                    setRenameOpen(true);
+                  }}
+                >
+                  <Pencil />
+                  Rename
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 onSelect={() => {
                   // A .vnote download: same-origin, so the session cookie rides
@@ -188,14 +210,18 @@ export function NoteCard({ note }: { note: NoteSummary }) {
                 <Download />
                 Export .vnote
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => setDeleteOpen(true)}
-              >
-                <Trash2 />
-                Delete
-              </DropdownMenuItem>
+              {owned ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

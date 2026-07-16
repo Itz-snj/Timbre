@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { del } from "@vercel/blob";
 import {
   currentUser,
+  forbidden,
   notFound,
   parseJsonBody,
   unauthorized,
@@ -10,6 +11,7 @@ import {
 import { serverEnv } from "@/lib/env";
 import { notesCollection, voiceNotesCollection } from "@/lib/mongodb";
 import { renameNoteSchema, toNoteDetail } from "@/lib/notes";
+import { accessFilter, checkWritable } from "@/lib/note-access";
 import { refundBudget } from "@/lib/voice-budget";
 import type { NoteDoc, UserDoc } from "@/lib/models";
 
@@ -17,21 +19,22 @@ import type { NoteDoc, UserDoc } from "@/lib/models";
 export const dynamic = "force-dynamic";
 
 /**
- * Loads a note the caller is allowed to touch, or returns the response to send
- * instead. A malformed id and a note owned by someone else both resolve to the
- * same 404: never confirm to a stranger that a given note id exists.
+ * Loads a note the caller may access (owner or collaborator), or returns the
+ * response to send instead. A malformed id and a note they can't reach both
+ * resolve to the same 404: never confirm a stranger that a note id exists.
  */
-async function loadOwnedNote(
+async function loadAccessibleNote(
   id: string,
   user: UserDoc,
 ): Promise<NoteDoc | NextResponse> {
   if (!ObjectId.isValid(id)) return notFound("Note not found.");
 
   const notes = await notesCollection();
-  const note = await notes.findOne({ _id: new ObjectId(id) });
-  if (!note || note.ownerId !== user.firebaseUid) {
-    return notFound("Note not found.");
-  }
+  const note = await notes.findOne({
+    _id: new ObjectId(id),
+    ...accessFilter(user.firebaseUid),
+  });
+  if (!note) return notFound("Note not found.");
   return note;
 }
 
@@ -67,7 +70,7 @@ export async function GET(
   if (!user) return unauthorized();
 
   const { id } = await params;
-  const note = await loadOwnedNote(id, user);
+  const note = await loadAccessibleNote(id, user);
   if (note instanceof NextResponse) return note;
 
   return NextResponse.json({ note: toNoteDetail(note) });
@@ -80,8 +83,8 @@ export async function GET(
  *     tags: [Notes]
  *     summary: Rename a note
  *     description: >
- *       Updates a note's title. Only the owner can rename, and only the title is
- *       editable here — the note type is fixed at creation.
+ *       Updates a note's title. Owner or a collaborator can rename; only the
+ *       title is editable here — the note type is fixed at creation.
  *     parameters:
  *       - in: path
  *         name: id
@@ -121,17 +124,18 @@ export async function PATCH(
 
   const { id } = await params;
   if (!ObjectId.isValid(id)) return notFound("Note not found.");
+  const _id = new ObjectId(id);
 
   const notes = await notesCollection();
-  // Fold the ownership check into the write: `ownerId` in the filter means a
-  // note the caller doesn't own simply matches nothing, so there's no
-  // find-then-update race where ownership could change between the two.
+  // Editors and the owner can rename; viewers get a 403 rather than a 404.
+  const access = await checkWritable(notes, _id, user.firebaseUid);
+  if (!access.ok) return access.viewOnly ? forbidden() : notFound("Note not found.");
+
   const updated = await notes.findOneAndUpdate(
-    { _id: new ObjectId(id), ownerId: user.firebaseUid },
+    { _id },
     { $set: { title: parsed.title, updatedAt: new Date() } },
     { returnDocument: "after" },
   );
-
   if (!updated) return notFound("Note not found.");
   return NextResponse.json({ note: toNoteDetail(updated) });
 }

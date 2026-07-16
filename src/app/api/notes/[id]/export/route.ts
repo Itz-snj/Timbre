@@ -4,6 +4,7 @@ import { ZipArchive } from "archiver";
 import { currentUser, jsonError, notFound, unauthorized } from "@/lib/api";
 import { serverEnv } from "@/lib/env";
 import { notesCollection, voiceNotesCollection } from "@/lib/mongodb";
+import { accessFilter } from "@/lib/note-access";
 import { buildManifest, vnoteFilename } from "@/lib/vnote";
 
 // Reads the session cookie, pulls from Blob, builds a zip — never prerender.
@@ -49,7 +50,7 @@ export async function GET(
   const noteId = new ObjectId(id);
 
   const notes = await notesCollection();
-  const note = await notes.findOne({ _id: noteId, ownerId: user.firebaseUid });
+  const note = await notes.findOne({ _id: noteId, ...accessFilter(user.firebaseUid) });
   if (!note) return notFound("Note not found.");
 
   const voiceNotes = await voiceNotesCollection();

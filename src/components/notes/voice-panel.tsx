@@ -47,6 +47,7 @@ export function VoicePanel({
   noteId,
   voiceNotes,
   budget,
+  canEdit,
   onChanged,
   getPosition,
   onInserted,
@@ -55,6 +56,7 @@ export function VoicePanel({
   noteId: string;
   voiceNotes: VoiceNoteSummary[];
   budget: Budget;
+  canEdit: boolean;
   onChanged: () => Promise<void>;
   getPosition?: () => RecPosition | null;
   onInserted?: (voiceNote: VoiceNoteSummary) => void;
@@ -91,6 +93,7 @@ export function VoicePanel({
           voiceNotes={voiceNotes}
           budget={budget}
           remaining={remaining}
+          canEdit={canEdit}
           onClose={() => setOpen(false)}
           onChanged={onChanged}
           getPosition={getPosition}
@@ -142,6 +145,7 @@ function VoiceDrawer({
   voiceNotes,
   budget,
   remaining,
+  canEdit,
   onClose,
   onChanged,
   getPosition,
@@ -153,6 +157,7 @@ function VoiceDrawer({
   voiceNotes: VoiceNoteSummary[];
   budget: Budget;
   remaining: number;
+  canEdit: boolean;
   onClose: () => void;
   onChanged: () => Promise<void>;
   getPosition?: () => RecPosition | null;
@@ -233,13 +238,15 @@ function VoiceDrawer({
           </div>
         </div>
 
-        <RecorderControls
-          noteId={noteId}
-          remaining={remaining}
-          getPosition={getPosition}
-          onChanged={onChanged}
-          onInserted={onInserted}
-        />
+        {canEdit ? (
+          <RecorderControls
+            noteId={noteId}
+            remaining={remaining}
+            getPosition={getPosition}
+            onChanged={onChanged}
+            onInserted={onInserted}
+          />
+        ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           {voiceNotes.length === 0 ? (
@@ -249,8 +256,9 @@ function VoiceDrawer({
               </span>
               <p className="mt-3 text-sm font-medium">No recordings yet</p>
               <p className="mt-1 max-w-[15rem] text-pretty text-xs text-muted-foreground">
-                Record a voice note — the recording is the content, any length,
-                any language.
+                {canEdit
+                  ? "Record a voice note — the recording is the content, any length, any language."
+                  : "No voice notes have been added to this note yet."}
               </p>
             </div>
           ) : (
@@ -260,6 +268,7 @@ function VoiceDrawer({
                   key={note.id}
                   note={note}
                   index={i}
+                  canEdit={canEdit}
                   onChanged={onChanged}
                   onAddToDocument={onAddToDocument}
                   onRequestDelete={onRequestDelete}
@@ -277,6 +286,7 @@ function VoiceDrawer({
 function VoiceNoteRow({
   note,
   index,
+  canEdit,
   onChanged,
   onAddToDocument,
   onRequestDelete,
@@ -284,6 +294,7 @@ function VoiceNoteRow({
 }: {
   note: VoiceNoteSummary;
   index: number;
+  canEdit: boolean;
   onChanged: () => Promise<void>;
   onAddToDocument?: (voiceNote: VoiceNoteSummary) => void;
   onRequestDelete: (note: VoiceNoteSummary) => void;
@@ -326,7 +337,7 @@ function VoiceNoteRow({
             className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             aria-label="Recording name"
           />
-        ) : (
+        ) : canEdit ? (
           <button
             type="button"
             onClick={() => {
@@ -339,9 +350,13 @@ function VoiceNoteRow({
             <span className="truncate text-sm font-medium">{displayName}</span>
             <Pencil className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
           </button>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {displayName}
+          </span>
         )}
 
-        {!editing ? (
+        {!editing && canEdit ? (
           <div className="flex shrink-0 items-center gap-0.5">
             {onAddToDocument ? (
               <button
@@ -371,6 +386,7 @@ function VoiceNoteRow({
       </div>
 
       <p className="mt-0.5 text-xs text-muted-foreground">
+        {note.uploaderName ? `${note.uploaderName} · ` : ""}
         {fmt(note.durationSec)}
         {note.position ? " · pinned" : ""}
       </p>

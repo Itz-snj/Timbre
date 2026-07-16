@@ -1,0 +1,17 @@
+{
+  "name": "timbre-socket-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone Socket.io relay for Timbre live collaboration (deployed to Render).",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1"
+  }
+}
