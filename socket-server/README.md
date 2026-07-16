@@ -29,7 +29,11 @@ appear in the other within ~1s.
 
 1. **New → Web Service**, connect this GitHub repo.
 2. **Root Directory:** `voicenote-canvas/socket-server`
-3. **Build Command:** `npm install` · **Start Command:** `npm start`
+3. **Build Command:** `bun install` (or `npm install`) · **Start Command:**
+   `bun start` (or `node server.js`).
+   ⚠️ This server needs **no build/bundling step** — it's plain Node. Do **not**
+   use `bun build` (Render may auto-suggest it because of `bun.lock`); that's
+   Bun's bundler and fails with "Missing entrypoints". Just install + start.
 4. **Health Check Path:** `/health`
 5. Environment variables:
    - `ALLOWED_ORIGIN` = your Vercel origin(s), comma-separated
